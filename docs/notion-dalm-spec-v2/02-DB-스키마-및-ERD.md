@@ -44,7 +44,7 @@ erDiagram
 |---|---|---:|---|---|
 | `id` | UUID | N | PK | 사용자 ID |
 | `kakao_id` | VARCHAR(100) | N | UNIQUE | 카카오 사용자 식별값 |
-| `nickname` | VARCHAR(12) | N | UNIQUE | 2~12자 닉네임 |
+| `nickname` | VARCHAR(12) | Y | UNIQUE | 온보딩 전 NULL, 완료 후 2~12자 닉네임 |
 | `profile_image_key` | VARCHAR(500) | Y |  | 프로필 이미지 키 |
 | `bio` | VARCHAR(100) | Y |  | 한 줄 소개 |
 | `status` | VARCHAR(20) | N | DEFAULT ACTIVE | ACTIVE, RESTRICTED, WITHDRAWN |

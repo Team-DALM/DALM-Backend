@@ -28,6 +28,7 @@ Flutter 클라이언트에 REST API를 제공하고 인증, 사용자, 사진, A
 
 - `GET /health`: 서버 프로세스 상태 확인
 - `GET /ready`: PostgreSQL·Redis 연결 준비 상태 확인
+- `POST /v1/auth/kakao`: 카카오 로그인 및 신규 사용자 생성
 - `POST /v1/auth/refresh`: Access/Refresh Token 재발급
 - `POST /v1/auth/logout`: Bearer Access Token 검증 및 로그아웃 요청
 - 공통 성공 응답: `data`, `error`
@@ -37,8 +38,7 @@ Flutter 클라이언트에 REST API를 제공하고 인증, 사용자, 사진, A
 전체 목표 API와 데이터 계약은
 [`docs/openapi/dalm-openapi.yaml`](docs/openapi/dalm-openapi.yaml)을 기준으로 합니다.
 
-> 현재 Refresh Token 저장소는 단일 프로세스용 인메모리 구현입니다. 다중 인스턴스
-> 배포 전 PostgreSQL 또는 Redis 기반 원자적 저장소로 교체해야 합니다.
+> Refresh Token은 Redis에 TTL과 함께 저장되며 Lua 스크립트로 원자적으로 회전·폐기합니다.
 
 ## 프로젝트 구조
 
@@ -103,6 +103,8 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 | `DALM_JWT_SECRET` | 없음 | JWT 서명 키, 최소 32자 필수 |
 | `DALM_DATABASE_URL` | 로컬 PostgreSQL | SQLAlchemy 비동기 연결 URL |
 | `DALM_REDIS_URL` | `redis://localhost:6380/0` | Redis 연결 URL |
+| `DALM_KAKAO_USER_INFO_URL` | 카카오 사용자 정보 API | 카카오 Access Token 검증 URL |
+| `DALM_KAKAO_TIMEOUT_SECONDS` | `5` | 카카오 API 제한 시간(초) |
 | `DALM_ACCESS_TOKEN_TTL_SECONDS` | `1800` | Access Token 유효 시간(초) |
 | `DALM_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh Token 유효 시간(초) |
 

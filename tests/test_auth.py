@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from app.token_store import InMemoryRefreshTokenStore
 
 TEST_SETTINGS = Settings(
     jwt_secret="test-secret-that-is-long-enough-for-hs256",
@@ -12,8 +13,24 @@ TEST_SETTINGS = Settings(
 )
 
 
+class FakeDependency:
+    async def ping(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
 def make_client() -> TestClient:
-    return TestClient(create_app(TEST_SETTINGS))
+    dependency = FakeDependency()
+    return TestClient(
+        create_app(
+            TEST_SETTINGS,
+            database=dependency,
+            cache=dependency,
+            refresh_store=InMemoryRefreshTokenStore(),
+        )
+    )
 
 
 def issue_pair(client: TestClient, subject: str = "user-1"):
@@ -69,19 +86,43 @@ def test_access_token_cannot_refresh() -> None:
     assert response.json()["error"]["code"] == "AUTHENTICATION_FAILED"
 
 
-def test_protected_endpoint_requires_bearer_access_token() -> None:
+def test_logout_requires_access_token_and_revokes_refresh_token() -> None:
     client = make_client()
+    pair = issue_pair(client)
 
-    missing = client.post("/v1/auth/logout")
+    missing = client.post(
+        "/v1/auth/logout",
+        json={"refresh_token": pair.refresh_token},
+    )
     assert missing.status_code == 401
     assert missing.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
 
-    pair = issue_pair(client)
     success = client.post(
         "/v1/auth/logout",
+        json={"refresh_token": pair.refresh_token},
         headers={"Authorization": f"Bearer {pair.access_token}"},
     )
     assert success.status_code == 204
+
+    refresh = client.post(
+        "/v1/auth/refresh",
+        json={"refresh_token": pair.refresh_token},
+    )
+    assert refresh.status_code == 401
+
+
+def test_logout_rejects_refresh_token_from_another_user() -> None:
+    client = make_client()
+    first = issue_pair(client, "user-1")
+    second = issue_pair(client, "user-2")
+
+    response = client.post(
+        "/v1/auth/logout",
+        json={"refresh_token": second.refresh_token},
+        headers={"Authorization": f"Bearer {first.access_token}"},
+    )
+
+    assert response.status_code == 401
 
 
 def test_concurrent_refresh_allows_only_one_rotation() -> None:

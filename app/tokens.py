@@ -8,7 +8,7 @@ from jwt import InvalidTokenError
 from app.config import Settings
 from app.errors import ApiError
 from app.schemas import TokenPair
-from app.token_store import InMemoryRefreshTokenStore
+from app.token_store import RefreshTokenStore
 
 AUTHENTICATION_FAILED = ApiError(
     401,
@@ -25,7 +25,7 @@ class TokenClaims:
 
 
 class TokenService:
-    def __init__(self, settings: Settings, store: InMemoryRefreshTokenStore) -> None:
+    def __init__(self, settings: Settings, store: RefreshTokenStore) -> None:
         self._settings = settings
         self._store = store
 
@@ -77,18 +77,30 @@ class TokenService:
 
     async def issue_pair(self, subject: str) -> TokenPair:
         pair, refresh_id = self._new_pair(subject)
-        await self._store.register(refresh_id)
+        await self._store.register(
+            refresh_id,
+            subject,
+            self._settings.refresh_token_ttl_seconds,
+        )
         return pair
 
     async def rotate(self, refresh_token: str) -> TokenPair:
         claims = self.decode(refresh_token, "refresh")
         pair, new_refresh_id = self._new_pair(claims.subject)
-        if not await self._store.rotate(claims.token_id, new_refresh_id):
+        rotated = await self._store.rotate(
+            claims.token_id,
+            new_refresh_id,
+            claims.subject,
+            self._settings.refresh_token_ttl_seconds,
+        )
+        if not rotated:
             raise AUTHENTICATION_FAILED
         return pair
 
-    async def revoke(self, refresh_token: str) -> None:
+    async def revoke(self, refresh_token: str, expected_subject: str) -> None:
         claims = self.decode(refresh_token, "refresh")
-        if not await self._store.revoke(claims.token_id):
+        if claims.subject != expected_subject:
+            raise AUTHENTICATION_FAILED
+        if not await self._store.revoke(claims.token_id, claims.subject):
             raise AUTHENTICATION_FAILED
 

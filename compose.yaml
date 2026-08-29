@@ -1,0 +1,65 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dalm}
+      POSTGRES_USER: ${POSTGRES_USER:-dalm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dalm}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+    environment:
+      DALM_JWT_SECRET: ${DALM_JWT_SECRET:?Set DALM_JWT_SECRET in .env}
+      DALM_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dalm}:${POSTGRES_PASSWORD:-dalm}@postgres:5432/${POSTGRES_DB:-dalm}
+      DALM_REDIS_URL: redis://redis:6379/0
+      DALM_ACCESS_TOKEN_TTL_SECONDS: ${DALM_ACCESS_TOKEN_TTL_SECONDS:-1800}
+      DALM_REFRESH_TOKEN_TTL_SECONDS: ${DALM_REFRESH_TOKEN_TTL_SECONDS:-2592000}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+

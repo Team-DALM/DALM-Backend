@@ -13,6 +13,10 @@ Flutter 클라이언트에 REST API를 제공하고 인증, 사용자, 사진, A
 - Uvicorn
 - Pydantic
 - PyJWT
+- SQLAlchemy 2.x + asyncpg + Alembic
+- PostgreSQL 16
+- Redis 7
+- Docker Compose
 - API 형식: REST + JSON, Base path `/v1`
 - 인증: JWT Bearer Access Token + 회전형 Refresh Token
 - 테스트: Pytest + FastAPI TestClient
@@ -22,7 +26,8 @@ Flutter 클라이언트에 REST API를 제공하고 인증, 사용자, 사진, A
 
 ## 현재 구현 범위
 
-- `GET /health`: 서버 상태 확인
+- `GET /health`: 서버 프로세스 상태 확인
+- `GET /ready`: PostgreSQL·Redis 연결 준비 상태 확인
 - `POST /v1/auth/refresh`: Access/Refresh Token 재발급
 - `POST /v1/auth/logout`: Bearer Access Token 검증 및 로그아웃 요청
 - 공통 성공 응답: `data`, `error`
@@ -42,17 +47,22 @@ DALM/
 ├── app/
 │   ├── main.py              # FastAPI 앱과 라우트
 │   ├── config.py            # 환경변수 및 실행 설정
+│   ├── database.py          # SQLAlchemy 비동기 DB 연결
+│   ├── cache.py             # Redis 비동기 연결
 │   ├── dependencies.py      # 인증 등 FastAPI 의존성
 │   ├── errors.py            # 공통 API 오류 응답
 │   ├── schemas.py           # 요청·응답 Pydantic 모델
 │   ├── tokens.py            # JWT 발급·검증·회전
 │   └── token_store.py       # Refresh Token 저장소
+├── alembic/                 # DB 마이그레이션
 ├── tests/                   # 단위·통합 테스트
 ├── docs/
 │   ├── openapi/             # OpenAPI 및 Swagger UI
 │   ├── notion-db-spec/      # DB·기능 명세
 │   └── notion-dalm-spec-v2/ # 서비스 통합 명세
-├── .github/                 # Pull Request 템플릿
+├── .github/                 # Pull Request 템플릿과 CI
+├── compose.yaml             # API·PostgreSQL·Redis 개발 환경
+├── Dockerfile              # FastAPI 컨테이너 이미지
 ├── CONTRIBUTING.md          # 상세 브랜치 및 협업 규칙
 └── pyproject.toml           # 패키지·도구 설정
 ```
@@ -91,6 +101,8 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 | 환경변수 | 기본값 | 설명 |
 |---|---:|---|
 | `DALM_JWT_SECRET` | 없음 | JWT 서명 키, 최소 32자 필수 |
+| `DALM_DATABASE_URL` | 로컬 PostgreSQL | SQLAlchemy 비동기 연결 URL |
+| `DALM_REDIS_URL` | `redis://localhost:6380/0` | Redis 연결 URL |
 | `DALM_ACCESS_TOKEN_TTL_SECONDS` | `1800` | Access Token 유효 시간(초) |
 | `DALM_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh Token 유효 시간(초) |
 
@@ -107,6 +119,47 @@ uvicorn app.main:app --reload
 - Swagger UI: `http://localhost:8000/docs`
 - OpenAPI JSON: `http://localhost:8000/openapi.json`
 - 상태 확인: `http://localhost:8000/health`
+
+## Docker Compose 실행
+
+`.env.example`을 복사하고 JWT Secret을 변경한 뒤 전체 개발 환경을 실행합니다.
+
+```bash
+cp .env.example .env
+docker compose up --build -d
+docker compose exec api alembic upgrade head
+```
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost:8000/ready
+```
+
+- FastAPI: `localhost:8000`
+- PostgreSQL: `localhost:5433`
+- Redis: `localhost:6380`
+
+호스트 포트는 `.env`의 `POSTGRES_PORT`와 `REDIS_PORT`로 변경할 수 있습니다.
+
+로그와 종료 명령은 다음과 같습니다.
+
+```bash
+docker compose logs -f api
+docker compose down
+```
+
+데이터 볼륨까지 삭제하려면 `docker compose down -v`를 사용합니다. 이 명령은 로컬
+PostgreSQL과 Redis 데이터를 삭제하므로 필요한 데이터가 없는지 먼저 확인합니다.
+
+## 데이터베이스 마이그레이션
+
+```bash
+alembic upgrade head
+alembic revision --autogenerate -m "add users table"
+alembic downgrade -1
+```
+
+마이그레이션 파일은 `alembic/versions/`에 커밋하며, 모델 변경 PR에 함께 포함합니다.
 
 ## 프론트엔드 연동
 
@@ -211,11 +264,11 @@ docs: 인증 API 연동 방법 추가
 
 ## 기본 검증
 
-**모든 커밋 전에 `ruff check app tests`를 최소 한 번 실행해야 합니다.**
+**모든 커밋 전에 `ruff check app tests alembic`를 최소 한 번 실행해야 합니다.**
 PR 생성 전에는 테스트와 Ruff 검사를 모두 통과시킵니다.
 
 ```bash
-ruff check app tests
+ruff check app tests alembic
 pytest -q
 ```
 
@@ -226,6 +279,7 @@ pytest -q
 - Access Token을 이용한 재발급 차단
 - 보호 API의 Bearer 인증
 - 동시 재발급 시 한 요청만 성공
+- DB·Redis readiness 성공 및 장애 시 503 응답
 
 ## 문서
 

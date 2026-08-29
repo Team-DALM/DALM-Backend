@@ -11,7 +11,7 @@
 
 ## 검증
 
-- [ ] **커밋 전 `ruff check app tests`를 최소 한 번 실행했습니다.**
+- [ ] **커밋 전 `ruff check app tests alembic`를 최소 한 번 실행했습니다.**
 - [ ] Ruff 검사가 통과합니다.
 - [ ] 전체 테스트가 통과합니다.
 - [ ] API 변경 시 OpenAPI 문서를 갱신했습니다.

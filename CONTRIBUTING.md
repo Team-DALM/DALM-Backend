@@ -34,7 +34,7 @@ git switch -c feature/<issue-number>-<description>
 모든 커밋 전에 아래 Ruff 명령을 최소 한 번 실행합니다.
 
 ```bash
-ruff check app tests
+ruff check app tests alembic
 ```
 
 Ruff가 실패하면 문제를 수정하고 다시 실행해 통과한 후 커밋합니다.

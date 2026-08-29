@@ -1,82 +1,59 @@
 # DALM Backend 기여 가이드
 
-## 브랜치 전략
+## 작업 흐름
 
-DALM Backend는 Git Flow를 사용합니다.
+DALM Backend는 `main`을 중심으로 한 Pull Request 흐름을 사용합니다.
 
-| 브랜치 | 역할 | 분기 기준 | 병합 대상 |
-|---|---|---|---|
-| `main` | 운영 배포 가능한 코드 | - | - |
-| `develop` | 다음 릴리스의 통합 개발 코드 | `main` | `release/*` |
-| `feature/*` | 기능 및 일반 작업 | `develop` | `develop` |
-| `release/*` | 릴리스 검증과 버전 준비 | `develop` | `main`, 이후 `develop` 동기화 |
-| `hotfix/*` | 운영 긴급 수정 | `main` | `main`, 이후 `develop` 동기화 |
-
-`feature/*`, `release/*`, `hotfix/*`는 작업이 끝나면 삭제합니다. 장기간 유지하는
-브랜치는 `main`과 `develop`뿐입니다.
+1. 작업 내용을 백엔드 GitHub 이슈로 생성합니다.
+2. 최신 `main`에서 작업 브랜치를 분기합니다.
+3. 구현·문서·테스트를 완성합니다.
+4. **커밋 전 Ruff를 최소 한 번 실행합니다.**
+5. 커밋과 푸시 후 `main` 대상 PR을 `Open` 상태로 생성합니다.
+6. PR 작업자는 병합하지 않고 사용자의 담당자 assign을 기다립니다.
+7. 담당자가 assign되면 검증 결과를 확인하고 `main`에 Squash Merge합니다.
+8. 병합된 작업 브랜치를 삭제합니다.
 
 ## 브랜치 이름
-
-이슈 번호와 작업 내용을 포함합니다.
 
 ```text
 feature/12-kakao-login
 fix/18-refresh-token-race
-release/1.0.0
-hotfix/1.0.1-auth-failure
+refactor/24-token-store
+docs/31-api-guide
+chore/35-ci
 ```
 
-일반 버그 수정은 `feature/*`와 동일하게 `develop`에서 `fix/*`로 분기하고
-`develop`으로 병합합니다. 운영 긴급 수정에만 `hotfix/*`를 사용합니다.
-
-## 기능 개발
-
 ```bash
-git switch develop
-git pull --ff-only origin develop
+git switch main
+git pull --ff-only origin main
 git switch -c feature/<issue-number>-<description>
 ```
 
-작업이 끝나면 원격에 푸시하고 `develop`을 대상으로 Pull Request를 만듭니다.
+## 커밋 전 필수 검증
+
+모든 커밋 전에 아래 Ruff 명령을 최소 한 번 실행합니다.
 
 ```bash
-git push -u origin feature/<issue-number>-<description>
+ruff check app tests
 ```
 
-- 이슈를 먼저 생성하고 PR 본문에 `Closes #<번호>`를 작성합니다.
-- CI가 통과하고 최소 1명이 승인한 뒤 병합합니다.
-- 병합 방식은 **Squash and merge**만 사용합니다.
-- `main`과 `develop`에 직접 푸시하지 않습니다.
-
-## 릴리스
-
-1. `develop`에서 `release/<version>`을 분기합니다.
-2. 릴리스 브랜치에서는 버전, 문서, 배포 차단 버그만 수정합니다.
-3. 검증 후 `main` 대상 PR을 Squash 병합합니다.
-4. `main` 병합 커밋에 `v<version>` 태그를 생성합니다.
-5. 릴리스 중 발생한 수정이 있다면 `develop`에도 다시 병합합니다.
+Ruff가 실패하면 문제를 수정하고 다시 실행해 통과한 후 커밋합니다.
+코드를 변경했다면 PR 생성 전에 테스트도 실행합니다.
 
 ```bash
-git switch develop
-git switch -c release/1.0.0
-git push -u origin release/1.0.0
-
-git switch main
-git pull --ff-only origin main
-git tag -a v1.0.0 -m "DALM Backend v1.0.0"
-git push origin v1.0.0
+pytest -q
 ```
 
-## 긴급 수정
+## PR 생성과 담당자 지정
 
-1. `main`에서 `hotfix/<version>-<description>`을 분기합니다.
-2. 수정 및 검증 후 `main` 대상 PR을 생성합니다.
-3. 배포 태그를 생성합니다.
-4. 같은 수정이 누락되지 않도록 `develop` 대상 PR도 생성합니다.
+- Base 브랜치는 항상 `main`으로 설정합니다.
+- PR 본문에 변경 내용, 검증 결과, `Closes #<번호>`를 작성합니다.
+- PR은 `Open` 상태로 유지하고 생성자가 임의로 merge하지 않습니다.
+- 사용자가 GitHub에서 담당자를 assign하는 것을 병합 승인 신호로 사용합니다.
+- assign 후 테스트와 Ruff 결과를 확인하고 **Squash and merge**합니다.
+- 병합 후 원격 작업 브랜치를 삭제합니다.
 
-## 커밋과 PR
-
-커밋과 PR 제목은 다음 접두사를 사용합니다.
+## 커밋과 PR 제목
 
 - `feat`: 기능 추가
 - `fix`: 버그 수정
@@ -85,5 +62,5 @@ git push origin v1.0.0
 - `docs`: 문서
 - `chore`: 설정과 유지보수
 
-PR은 한 가지 목적만 포함하고, 변경 이유·검증 방법·관련 이슈를 반드시 기록합니다.
+PR은 한 가지 목적만 포함합니다.
 

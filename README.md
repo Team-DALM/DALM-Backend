@@ -53,7 +53,7 @@ DALM/
 │   ├── notion-db-spec/      # DB·기능 명세
 │   └── notion-dalm-spec-v2/ # 서비스 통합 명세
 ├── .github/                 # Pull Request 템플릿
-├── CONTRIBUTING.md          # 상세 Git Flow 및 협업 규칙
+├── CONTRIBUTING.md          # 상세 브랜치 및 협업 규칙
 └── pyproject.toml           # 패키지·도구 설정
 ```
 
@@ -64,7 +64,7 @@ DALM/
 ```bash
 git clone https://github.com/Team-DALM/DALM-Backend.git
 cd DALM-Backend
-git switch develop
+git switch main
 ```
 
 ### 2. 가상환경과 의존성 설치
@@ -173,37 +173,24 @@ Android Emulator에서 호스트의 로컬 서버에 접근할 때는 환경에 
 - 재발급 요청 자체가 401이면 무한 재시도하지 않고 저장된 두 토큰을 삭제합니다.
 - 동시에 여러 요청이 401이어도 프론트는 재발급 요청을 한 번만 실행해야 합니다.
 
-## 브랜치 전략
+## 브랜치 및 PR 전략
 
-DALM Backend는 **Git Flow**를 사용합니다.
-
-| 브랜치 | 역할 | 흐름 |
-|---|---|---|
-| `main` | 운영 배포 가능한 안정 코드 | `release/*`, `hotfix/*`에서 PR |
-| `develop` | 다음 릴리스의 통합 개발 코드 | `feature/*`, `fix/*`에서 PR |
-| `feature/*` | 기능 및 일반 작업 | `develop`에서 분기 → `develop` 병합 |
-| `fix/*` | 배포 전 일반 버그 수정 | `develop`에서 분기 → `develop` 병합 |
-| `release/*` | 릴리스 검증과 버전 준비 | `develop`에서 분기 → `main` 병합 |
-| `hotfix/*` | 운영 긴급 수정 | `main`에서 분기 → `main`, `develop` 병합 |
-
-기능 개발은 이슈를 먼저 만든 다음 이슈 번호를 포함한 브랜치에서 시작합니다.
+DALM Backend는 `main`을 중심으로 한 Pull Request 흐름을 사용합니다. 이슈를 먼저
+만든 다음 최신 `main`에서 이슈 번호를 포함한 작업 브랜치를 생성합니다.
 
 ```bash
-git switch develop
-git pull --ff-only origin develop
+git switch main
+git pull --ff-only origin main
 git switch -c feature/12-kakao-login
 ```
 
-- `main`과 `develop`에 직접 푸시하지 않습니다.
-- Pull Request는 최소 1명 승인과 테스트 통과 후 병합합니다.
-- 병합 방식은 **Squash and merge**만 사용합니다.
-- PR 본문에 `Closes #<이슈번호>`를 작성합니다.
-- 병합된 작업 브랜치는 삭제합니다.
-- 릴리스는 `main` 병합 후 `v1.0.0` 형식으로 태그합니다.
-- `hotfix/*` 변경은 `main` 배포 후 반드시 `develop`에도 반영합니다.
+- `main`에 직접 푸시하지 않습니다.
+- 작업자는 `main` 대상 PR을 **Open** 상태로 생성합니다.
+- PR 생성자는 임의로 병합하지 않고 사용자의 담당자 assign을 기다립니다.
+- 담당자가 assign되면 검증 상태를 확인한 뒤 `main`에 **Squash and merge**합니다.
+- PR 본문에 `Closes #<이슈번호>`를 작성하고 병합 후 작업 브랜치를 삭제합니다.
 
-자세한 작업·릴리스·긴급 수정 절차는
-[`CONTRIBUTING.md`](CONTRIBUTING.md)를 참고하세요.
+자세한 작업·검증·병합 절차는 [`CONTRIBUTING.md`](CONTRIBUTING.md)를 참고하세요.
 
 ## 커밋 규칙
 
@@ -224,11 +211,12 @@ docs: 인증 API 연동 방법 추가
 
 ## 기본 검증
 
-Pull Request를 올리기 전에 테스트와 린트를 모두 통과시킵니다.
+**모든 커밋 전에 `ruff check app tests`를 최소 한 번 실행해야 합니다.**
+PR 생성 전에는 테스트와 Ruff 검사를 모두 통과시킵니다.
 
 ```bash
-pytest -q
 ruff check app tests
+pytest -q
 ```
 
 현재 인증 테스트는 다음 동작을 검증합니다.

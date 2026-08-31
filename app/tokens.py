@@ -61,6 +61,20 @@ class TokenService:
                 token_type=str(payload["type"]),
             )
         except ExpiredSignatureError as exc:
+            try:
+                expired_payload = jwt.decode(
+                    token,
+                    self._settings.jwt_secret,
+                    algorithms=[self._settings.jwt_algorithm],
+                    options={
+                        "require": ["sub", "jti", "type", "iat", "exp"],
+                        "verify_exp": False,
+                    },
+                )
+                if expired_payload["type"] != expected_type:
+                    raise InvalidTokenError("unexpected token type")
+            except (InvalidTokenError, KeyError, TypeError) as invalid_exc:
+                raise AUTHENTICATION_FAILED from invalid_exc
             if expected_type == "access":
                 raise ACCESS_TOKEN_EXPIRED from exc
             if expected_type == "refresh":

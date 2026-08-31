@@ -123,6 +123,43 @@ def test_expired_access_token_has_specific_error_code() -> None:
     assert response.json()["error"]["code"] == "ACCESS_TOKEN_EXPIRED"
 
 
+def test_expired_access_token_cannot_be_used_as_refresh_token() -> None:
+    settings = Settings(
+        jwt_secret=TEST_SETTINGS.jwt_secret,
+        access_token_ttl_seconds=-1,
+        refresh_token_ttl_seconds=3600,
+    )
+    client = make_client(settings)
+    pair = issue_pair(client)
+
+    response = client.post(
+        "/v1/auth/refresh",
+        json={"refresh_token": pair.access_token},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "AUTHENTICATION_FAILED"
+
+
+def test_expired_refresh_token_cannot_be_used_as_access_token() -> None:
+    settings = Settings(
+        jwt_secret=TEST_SETTINGS.jwt_secret,
+        access_token_ttl_seconds=300,
+        refresh_token_ttl_seconds=-1,
+    )
+    client = make_client(settings)
+    pair = issue_pair(client)
+
+    response = client.post(
+        "/v1/auth/logout",
+        json={"refresh_token": pair.refresh_token},
+        headers={"Authorization": f"Bearer {pair.refresh_token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "AUTHENTICATION_FAILED"
+
+
 def test_logout_requires_access_token_and_revokes_refresh_token() -> None:
     client = make_client()
     pair = issue_pair(client)

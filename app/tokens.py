@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import jwt
-from jwt import InvalidTokenError
+from jwt import ExpiredSignatureError, InvalidTokenError
 
 from app.config import Settings
 from app.errors import ApiError
@@ -15,6 +15,8 @@ AUTHENTICATION_FAILED = ApiError(
     "AUTHENTICATION_FAILED",
     "인증 토큰이 유효하지 않거나 만료되었습니다.",
 )
+ACCESS_TOKEN_EXPIRED = ApiError(401, "ACCESS_TOKEN_EXPIRED", "액세스 토큰이 만료되었습니다.")
+REFRESH_TOKEN_EXPIRED = ApiError(401, "REFRESH_TOKEN_EXPIRED", "리프레시 토큰이 만료되었습니다.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +60,12 @@ class TokenService:
                 token_id=str(payload["jti"]),
                 token_type=str(payload["type"]),
             )
+        except ExpiredSignatureError as exc:
+            if expected_type == "access":
+                raise ACCESS_TOKEN_EXPIRED from exc
+            if expected_type == "refresh":
+                raise REFRESH_TOKEN_EXPIRED from exc
+            raise AUTHENTICATION_FAILED from exc
         except (InvalidTokenError, KeyError, TypeError) as exc:
             raise AUTHENTICATION_FAILED from exc
 
@@ -103,4 +111,3 @@ class TokenService:
             raise AUTHENTICATION_FAILED
         if not await self._store.revoke(claims.token_id, claims.subject):
             raise AUTHENTICATION_FAILED
-

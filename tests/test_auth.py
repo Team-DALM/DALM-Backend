@@ -21,11 +21,11 @@ class FakeDependency:
         return None
 
 
-def make_client() -> TestClient:
+def make_client(settings: Settings = TEST_SETTINGS) -> TestClient:
     dependency = FakeDependency()
     return TestClient(
         create_app(
-            TEST_SETTINGS,
+            settings,
             database=dependency,
             cache=dependency,
             refresh_store=InMemoryRefreshTokenStore(),
@@ -86,6 +86,43 @@ def test_access_token_cannot_refresh() -> None:
     assert response.json()["error"]["code"] == "AUTHENTICATION_FAILED"
 
 
+def test_expired_refresh_token_has_specific_error_code() -> None:
+    settings = Settings(
+        jwt_secret=TEST_SETTINGS.jwt_secret,
+        access_token_ttl_seconds=300,
+        refresh_token_ttl_seconds=-1,
+    )
+    client = make_client(settings)
+    pair = issue_pair(client)
+
+    response = client.post(
+        "/v1/auth/refresh",
+        json={"refresh_token": pair.refresh_token},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "REFRESH_TOKEN_EXPIRED"
+
+
+def test_expired_access_token_has_specific_error_code() -> None:
+    settings = Settings(
+        jwt_secret=TEST_SETTINGS.jwt_secret,
+        access_token_ttl_seconds=-1,
+        refresh_token_ttl_seconds=3600,
+    )
+    client = make_client(settings)
+    pair = issue_pair(client)
+
+    response = client.post(
+        "/v1/auth/logout",
+        json={"refresh_token": pair.refresh_token},
+        headers={"Authorization": f"Bearer {pair.access_token}"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "ACCESS_TOKEN_EXPIRED"
+
+
 def test_logout_requires_access_token_and_revokes_refresh_token() -> None:
     client = make_client()
     pair = issue_pair(client)
@@ -139,4 +176,3 @@ def test_concurrent_refresh_allows_only_one_rotation() -> None:
 
     assert statuses.count(200) == 1
     assert statuses.count(401) == 3
-

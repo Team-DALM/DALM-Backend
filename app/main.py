@@ -1,7 +1,9 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Annotated, Protocol
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Response, status
 from fastapi.responses import JSONResponse
@@ -18,6 +20,8 @@ from app.kakao import KakaoClient
 from app.schemas import (
     ApiResponse,
     AuthData,
+    HomeData,
+    HomeState,
     KakaoLoginRequest,
     RefreshTokenRequest,
     TokenPair,
@@ -132,8 +136,20 @@ def create_app(
     ) -> None:
         await service.revoke(request.refresh_token, claims.subject)
 
+    @app.get("/v1/home", response_model=ApiResponse[HomeData], tags=["Home"])
+    async def get_home(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+    ) -> ApiResponse[HomeData]:
+        del claims
+        return ApiResponse(
+            data=HomeData(
+                date=datetime.now(ZoneInfo("Asia/Seoul")).date(),
+                state=HomeState.EMPTY,
+                can_upload_today=True,
+            )
+        )
+
     return app
 
 
 app = create_app()
-

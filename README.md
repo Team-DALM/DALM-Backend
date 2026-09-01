@@ -228,6 +228,30 @@ Android Emulator에서 호스트의 로컬 서버에 접근할 때는 환경에 
 - 재발급 요청 자체가 401이면 무한 재시도하지 않고 저장된 두 토큰을 삭제합니다.
 - 동시에 여러 요청이 401이어도 프론트는 재발급 요청을 한 번만 실행해야 합니다.
 
+### 홈 화면
+
+`GET /v1/home`은 Access Token이 필요한 보호 API입니다. 사진·매칭 기능이 아직
+구현되지 않은 현재 단계에서는 프론트가 홈 empty 상태를 연동할 수 있도록 다음
+응답을 반환합니다.
+
+```json
+{
+  "data": {
+    "date": "2026-09-01",
+    "state": "EMPTY",
+    "can_upload_today": true,
+    "today_photo": null,
+    "searching_photos": [],
+    "new_match": null
+  },
+  "error": null
+}
+```
+
+`state`는 Figma의 홈 화면 상태에 맞춰 `EMPTY`, `TODAY_AVAILABLE_WITH_HISTORY`,
+`TODAY_SEARCHING`, `PREVIOUS_MATCHED`, `TODAY_MATCHED`를 사용합니다. 사진·매칭
+기능이 추가되면 같은 계약의 나머지 필드에 실제 데이터를 채웁니다.
+
 ## 브랜치 및 PR 전략
 
 DALM Backend는 `main`을 중심으로 한 Pull Request 흐름을 사용합니다. 이슈를 먼저
@@ -291,4 +315,3 @@ pytest -q
 - [DB 스키마 및 ERD](docs/notion-dalm-spec-v2/02-DB-스키마-및-ERD.md)
 - [API 및 파트 간 인터페이스](docs/notion-dalm-spec-v2/05-API-및-파트간-인터페이스.md)
 - [정책·예외·테스트 체크리스트](docs/notion-dalm-spec-v2/06-정책-예외-테스트-체크리스트.md)
-

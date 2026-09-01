@@ -95,6 +95,12 @@ paths:
       tags: [Auth]
       summary: 로그아웃
       operationId: logout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
       responses:
         '204':
           description: 로그아웃 성공
@@ -784,9 +790,24 @@ components:
           type: integer
           description: Access Token 유효 시간(초)
 
+    AuthUser:
+      type: object
+      required: [id, nickname, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        nickname:
+          oneOf:
+            - type: string
+            - type: 'null'
+        status:
+          type: string
+          enum: [ACTIVE, RESTRICTED, WITHDRAWN]
+
     AuthData:
       type: object
-      required: [is_new_user, onboarding_required, tokens]
+      required: [is_new_user, onboarding_required, tokens, user]
       properties:
         is_new_user:
           type: boolean
@@ -796,7 +817,7 @@ components:
           $ref: '#/components/schemas/TokenPair'
         user:
           oneOf:
-            - $ref: '#/components/schemas/User'
+            - $ref: '#/components/schemas/AuthUser'
             - type: 'null'
 
     AuthResponse:

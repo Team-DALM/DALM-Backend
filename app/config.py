@@ -7,6 +7,8 @@ class Settings:
     jwt_secret: str
     database_url: str = "postgresql+asyncpg://dalm:dalm@localhost:5433/dalm"
     redis_url: str = "redis://localhost:6380/0"
+    kakao_user_info_url: str = "https://kapi.kakao.com/v2/user/me"
+    kakao_timeout_seconds: float = 5.0
     access_token_ttl_seconds: int = 1_800
     refresh_token_ttl_seconds: int = 2_592_000
     jwt_algorithm: str = "HS256"
@@ -23,6 +25,11 @@ class Settings:
                 "postgresql+asyncpg://dalm:dalm@localhost:5433/dalm",
             ),
             redis_url=os.getenv("DALM_REDIS_URL", "redis://localhost:6380/0"),
+            kakao_user_info_url=os.getenv(
+                "DALM_KAKAO_USER_INFO_URL",
+                "https://kapi.kakao.com/v2/user/me",
+            ),
+            kakao_timeout_seconds=float(os.getenv("DALM_KAKAO_TIMEOUT_SECONDS", "5")),
             access_token_ttl_seconds=int(
                 os.getenv("DALM_ACCESS_TOKEN_TTL_SECONDS", "1800")
             ),

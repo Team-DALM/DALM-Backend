@@ -3,18 +3,20 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import jwt
-from jwt import InvalidTokenError
+from jwt import ExpiredSignatureError, InvalidTokenError
 
 from app.config import Settings
 from app.errors import ApiError
 from app.schemas import TokenPair
-from app.token_store import InMemoryRefreshTokenStore
+from app.token_store import RefreshTokenStore
 
 AUTHENTICATION_FAILED = ApiError(
     401,
     "AUTHENTICATION_FAILED",
     "인증 토큰이 유효하지 않거나 만료되었습니다.",
 )
+ACCESS_TOKEN_EXPIRED = ApiError(401, "ACCESS_TOKEN_EXPIRED", "액세스 토큰이 만료되었습니다.")
+REFRESH_TOKEN_EXPIRED = ApiError(401, "REFRESH_TOKEN_EXPIRED", "리프레시 토큰이 만료되었습니다.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +27,7 @@ class TokenClaims:
 
 
 class TokenService:
-    def __init__(self, settings: Settings, store: InMemoryRefreshTokenStore) -> None:
+    def __init__(self, settings: Settings, store: RefreshTokenStore) -> None:
         self._settings = settings
         self._store = store
 
@@ -58,6 +60,26 @@ class TokenService:
                 token_id=str(payload["jti"]),
                 token_type=str(payload["type"]),
             )
+        except ExpiredSignatureError as exc:
+            try:
+                expired_payload = jwt.decode(
+                    token,
+                    self._settings.jwt_secret,
+                    algorithms=[self._settings.jwt_algorithm],
+                    options={
+                        "require": ["sub", "jti", "type", "iat", "exp"],
+                        "verify_exp": False,
+                    },
+                )
+                if expired_payload["type"] != expected_type:
+                    raise InvalidTokenError("unexpected token type")
+            except (InvalidTokenError, KeyError, TypeError) as invalid_exc:
+                raise AUTHENTICATION_FAILED from invalid_exc
+            if expected_type == "access":
+                raise ACCESS_TOKEN_EXPIRED from exc
+            if expected_type == "refresh":
+                raise REFRESH_TOKEN_EXPIRED from exc
+            raise AUTHENTICATION_FAILED from exc
         except (InvalidTokenError, KeyError, TypeError) as exc:
             raise AUTHENTICATION_FAILED from exc
 
@@ -77,18 +99,29 @@ class TokenService:
 
     async def issue_pair(self, subject: str) -> TokenPair:
         pair, refresh_id = self._new_pair(subject)
-        await self._store.register(refresh_id)
+        await self._store.register(
+            refresh_id,
+            subject,
+            self._settings.refresh_token_ttl_seconds,
+        )
         return pair
 
     async def rotate(self, refresh_token: str) -> TokenPair:
         claims = self.decode(refresh_token, "refresh")
         pair, new_refresh_id = self._new_pair(claims.subject)
-        if not await self._store.rotate(claims.token_id, new_refresh_id):
+        rotated = await self._store.rotate(
+            claims.token_id,
+            new_refresh_id,
+            claims.subject,
+            self._settings.refresh_token_ttl_seconds,
+        )
+        if not rotated:
             raise AUTHENTICATION_FAILED
         return pair
 
-    async def revoke(self, refresh_token: str) -> None:
+    async def revoke(self, refresh_token: str, expected_subject: str) -> None:
         claims = self.decode(refresh_token, "refresh")
-        if not await self._store.revoke(claims.token_id):
+        if claims.subject != expected_subject:
             raise AUTHENTICATION_FAILED
-
+        if not await self._store.revoke(claims.token_id, claims.subject):
+            raise AUTHENTICATION_FAILED

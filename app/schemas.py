@@ -71,3 +71,62 @@ class HomeData(BaseModel):
     today_photo: HomePhotoSummary | None = None
     searching_photos: list[HomePhotoSummary] = Field(default_factory=list)
     new_match: HomeMatchSummary | None = None
+
+
+class PhotoRejection(BaseModel):
+    code: str
+    message: str
+
+
+class TodayPhoto(BaseModel):
+    id: UUID
+    status: str
+    image_url: str
+    ai_title: str | None = None
+    registered_at: datetime
+    search_expires_at: datetime | None = None
+    remaining_days: int | None = Field(default=None, ge=0, le=7)
+    rejection: PhotoRejection | None = None
+    match_id: UUID | None = None
+    partner_image_url: str | None = None
+    matched_at: datetime | None = None
+
+
+class TodayPhotoData(BaseModel):
+    can_register: bool
+    photo: TodayPhoto | None
+
+
+class MomentPhoto(BaseModel):
+    photo_id: UUID
+    image_url: str
+    ai_title: str | None = None
+    status: str
+    registered_at: datetime
+    search_expires_at: datetime | None = None
+    remaining_days: int | None = Field(default=None, ge=0, le=7)
+
+
+class MomentListData(BaseModel):
+    items: list[MomentPhoto]
+    next_cursor: str | None
+    has_next: bool
+
+
+class UnviewedMatch(BaseModel):
+    match_id: UUID
+    my_photo_id: UUID
+    my_image_url: str
+    partner_image_url: str
+    ai_title: str | None = None
+    matched_at: datetime
+
+
+class UnviewedMatchData(BaseModel):
+    match: UnviewedMatch | None
+    unviewed_match_count: int = Field(ge=0)
+
+
+class ViewedMatchData(BaseModel):
+    match_id: UUID
+    viewed_at: datetime

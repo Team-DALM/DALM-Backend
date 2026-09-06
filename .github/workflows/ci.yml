@@ -1,4 +1,4 @@
-name: Backend CI
+name: Backend CI/CD
 
 on:
   pull_request:
@@ -13,9 +13,9 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -31,8 +31,131 @@ jobs:
           DALM_JWT_SECRET: ci-secret-that-is-at-least-32-characters
         run: pytest -q
 
+      - name: Compile Python sources
+        run: python -m compileall -q app alembic tests
+
+      - name: Validate Alembic migrations
+        env:
+          DALM_DATABASE_URL: postgresql+asyncpg://dalm:dalm@localhost:5432/dalm
+        run: alembic upgrade head --sql > /tmp/dalm-migration.sql
+
       - name: Validate Docker Compose
         env:
           DALM_JWT_SECRET: ci-secret-that-is-at-least-32-characters
         run: docker compose config --quiet
 
+  container:
+    runs-on: ubuntu-latest
+    needs: quality
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build production image
+        run: docker build --tag dalm-api:${{ github.sha }} .
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [quality, container]
+    environment: production
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      REGION: asia-northeast3
+      REPOSITORY: dalm
+      SERVICE: dalm-api
+      MIGRATION_JOB: dalm-migrate
+      RUNTIME_SERVICE_ACCOUNT: dalm-runtime@${{ vars.GCP_PROJECT_ID }}.iam.gserviceaccount.com
+      IMAGE_URI: asia-northeast3-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/dalm/api:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Authenticate Docker to Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: asia-northeast3-docker.pkg.dev
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - name: Build and push image
+        run: |
+          docker build --tag "$IMAGE_URI" .
+          docker push "$IMAGE_URI"
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Deploy migration job
+        run: |
+          gcloud run jobs deploy "$MIGRATION_JOB" \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --region="$REGION" \
+            --image="$IMAGE_URI" \
+            --service-account="$RUNTIME_SERVICE_ACCOUNT" \
+            --set-secrets="DALM_DATABASE_URL=dalm-database-url-unpooled:latest" \
+            --command=alembic \
+            --args=upgrade,head \
+            --tasks=1 \
+            --max-retries=0 \
+            --task-timeout=5m \
+            --cpu=1 \
+            --memory=512Mi \
+            --quiet
+
+      - name: Run database migrations
+        run: |
+          gcloud run jobs execute "$MIGRATION_JOB" \
+            --project="${{ vars.GCP_PROJECT_ID }}" \
+            --region="$REGION" \
+            --wait
+
+      - id: deploy
+        name: Deploy API to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          region: ${{ env.REGION }}
+          service: ${{ env.SERVICE }}
+          image: ${{ env.IMAGE_URI }}
+          timeout: 60s
+          secrets: |-
+            DALM_JWT_SECRET=dalm-jwt-secret:latest
+            DALM_DATABASE_URL=dalm-database-url:latest
+            DALM_REDIS_URL=dalm-redis-url:latest
+          secrets_update_strategy: overwrite
+          flags: >-
+            --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
+            --port=8080
+            --cpu=1
+            --memory=512Mi
+            --concurrency=40
+            --min-instances=0
+            --max-instances=2
+            --allow-unauthenticated
+
+      - name: Verify deployment
+        env:
+          SERVICE_URL: ${{ steps.deploy.outputs.url }}
+        run: |
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent --show-error "$SERVICE_URL/ready"; then
+              exit 0
+            fi
+            sleep 5
+          done
+          exit 1

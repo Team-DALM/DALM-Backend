@@ -1,11 +1,15 @@
 import asyncio
+import base64
+import binascii
+import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated, Protocol
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, Response, status
+from fastapi import Depends, FastAPI, Query, Response, status
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
@@ -14,17 +18,31 @@ from app.auth import AuthService
 from app.cache import Cache
 from app.config import Settings
 from app.database import Database
-from app.dependencies import get_auth_service, get_token_service, require_access_token
+from app.dependencies import (
+    get_auth_service,
+    get_home_repository,
+    get_token_service,
+    require_access_token,
+)
 from app.errors import ApiError, api_error_handler, infrastructure_error_handler
 from app.kakao import KakaoClient
+from app.repositories import HomeRepository
 from app.schemas import (
     ApiResponse,
     AuthData,
     HomeData,
     HomeState,
     KakaoLoginRequest,
+    MomentListData,
+    MomentPhoto,
+    PhotoRejection,
     RefreshTokenRequest,
+    TodayPhoto,
+    TodayPhotoData,
     TokenPair,
+    UnviewedMatch,
+    UnviewedMatchData,
+    ViewedMatchData,
 )
 from app.token_store import (
     InMemoryRefreshTokenStore,
@@ -148,6 +166,157 @@ def create_app(
                 can_upload_today=True,
             )
         )
+
+    def authenticated_user_id(claims: TokenClaims) -> UUID:
+        try:
+            return UUID(claims.subject)
+        except ValueError as exc:
+            raise ApiError(401, "INVALID_ACCESS_TOKEN", "유효하지 않은 인증 정보입니다.") from exc
+
+    def remaining_days(expires_at: datetime | None) -> int | None:
+        if expires_at is None:
+            return None
+        value = math.ceil((expires_at - datetime.now(UTC)).total_seconds() / 86400)
+        return min(7, max(0, value))
+
+    def encode_cursor(registered_at: datetime, photo_id: UUID) -> str:
+        raw = f"{registered_at.isoformat()}|{photo_id}".encode()
+        return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+    def decode_cursor(value: str | None) -> tuple[datetime, UUID] | None:
+        if value is None:
+            return None
+        try:
+            padded = value + "=" * (-len(value) % 4)
+            timestamp, photo_id = base64.urlsafe_b64decode(padded).decode().split("|", 1)
+            parsed = datetime.fromisoformat(timestamp)
+            if parsed.tzinfo is None:
+                raise ValueError
+            return parsed, UUID(photo_id)
+        except (ValueError, UnicodeDecodeError, binascii.Error) as exc:
+            raise ApiError(422, "INVALID_CURSOR", "cursor 형식이 올바르지 않습니다.") from exc
+
+    @app.get(
+        "/v1/photos/today",
+        response_model=ApiResponse[TodayPhotoData],
+        tags=["Photos"],
+    )
+    async def get_today_photo(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+    ) -> ApiResponse[TodayPhotoData]:
+        user_id = authenticated_user_id(claims)
+        today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+        photo = await repository.get_today_photo(user_id, today)
+        if photo is None:
+            return ApiResponse(data=TodayPhotoData(can_register=True, photo=None))
+
+        match = None
+        if photo.status == "MATCHED":
+            match = await repository.get_match_card_for_photo(user_id, photo.id)
+        rejection = None
+        if photo.status == "REJECTED" and photo.rejection_code and photo.rejection_message:
+            rejection = PhotoRejection(
+                code=photo.rejection_code,
+                message=photo.rejection_message,
+            )
+        return ApiResponse(
+            data=TodayPhotoData(
+                can_register=photo.status == "REJECTED",
+                photo=TodayPhoto(
+                    id=photo.id,
+                    status=photo.status,
+                    image_url=photo.image_url,
+                    ai_title=photo.ai_title,
+                    registered_at=photo.registered_at,
+                    search_expires_at=photo.search_expires_at,
+                    remaining_days=(
+                        remaining_days(photo.search_expires_at)
+                        if photo.status == "SEARCHING"
+                        else None
+                    ),
+                    rejection=rejection,
+                    match_id=match.match_id if match else None,
+                    partner_image_url=match.partner_image_url if match else None,
+                    matched_at=match.matched_at if match else None,
+                ),
+            )
+        )
+
+    @app.get(
+        "/v1/moments",
+        response_model=ApiResponse[MomentListData],
+        tags=["Moments"],
+    )
+    async def list_moments(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+        photo_status: Annotated[str, Query(alias="status", pattern="^SEARCHING$")] = "SEARCHING",
+        exclude_today: bool = False,
+        size: Annotated[int, Query(ge=1, le=50)] = 20,
+        cursor: str | None = None,
+    ) -> ApiResponse[MomentListData]:
+        del photo_status
+        photos = await repository.list_searching_photos(
+            authenticated_user_id(claims),
+            today=datetime.now(ZoneInfo("Asia/Seoul")).date(),
+            exclude_today=exclude_today,
+            size=size,
+            cursor=decode_cursor(cursor),
+        )
+        has_next = len(photos) > size
+        page = photos[:size]
+        next_cursor = (
+            encode_cursor(page[-1].registered_at, page[-1].id) if has_next and page else None
+        )
+        return ApiResponse(
+            data=MomentListData(
+                items=[
+                    MomentPhoto(
+                        photo_id=photo.id,
+                        image_url=photo.image_url,
+                        ai_title=photo.ai_title,
+                        status=photo.status,
+                        registered_at=photo.registered_at,
+                        search_expires_at=photo.search_expires_at,
+                        remaining_days=remaining_days(photo.search_expires_at),
+                    )
+                    for photo in page
+                ],
+                next_cursor=next_cursor,
+                has_next=has_next,
+            )
+        )
+
+    @app.get(
+        "/v1/matches/unviewed/next",
+        response_model=ApiResponse[UnviewedMatchData],
+        tags=["Matches"],
+    )
+    async def get_next_unviewed_match(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+    ) -> ApiResponse[UnviewedMatchData]:
+        row, count = await repository.get_next_unviewed_match(
+            authenticated_user_id(claims), datetime.now(ZoneInfo("Asia/Seoul")).date()
+        )
+        match = UnviewedMatch(**row.__dict__) if row else None
+        return ApiResponse(data=UnviewedMatchData(match=match, unviewed_match_count=count))
+
+    @app.patch(
+        "/v1/matches/{match_id}/viewed",
+        response_model=ApiResponse[ViewedMatchData],
+        tags=["Matches"],
+    )
+    async def mark_match_viewed(
+        match_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+    ) -> ApiResponse[ViewedMatchData]:
+        viewed_at = await repository.mark_match_viewed(authenticated_user_id(claims), match_id)
+        if viewed_at is None:
+            raise ApiError(404, "MATCH_NOT_FOUND", "매칭을 찾을 수 없습니다.")
+        return ApiResponse(data=ViewedMatchData(match_id=match_id, viewed_at=viewed_at))
 
     return app
 

@@ -44,6 +44,15 @@ Ruff가 실패하면 문제를 수정하고 다시 실행해 통과한 후 커�
 pytest -q
 ```
 
+CI에서는 위 검사와 함께 Alembic 전체 마이그레이션 SQL 생성, Docker Compose 설정 검증,
+프로덕션 Docker 이미지 빌드까지 수행합니다. 모든 검사가 통과한 커밋만 배포 대상으로
+사용합니다.
+
+`main` 브랜치에 반영되면 GitHub Actions가 `production` Environment의 Google Cloud
+Workload Identity 설정으로 인증합니다. 동일한 이미지를 사용해 Alembic 마이그레이션
+Job을 먼저 완료한 후 서울 리전의 `dalm-api` Cloud Run 서비스에 배포하고 `/ready`를
+확인합니다. 마이그레이션 또는 준비 상태 확인이 실패하면 workflow도 실패합니다.
+
 ## PR 생성과 담당자 지정
 
 - Base 브랜치는 항상 `main`으로 설정합니다.
@@ -63,4 +72,3 @@ pytest -q
 - `chore`: 설정과 유지보수
 
 PR은 한 가지 목적만 포함합니다.
-

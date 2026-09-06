@@ -293,7 +293,15 @@ paths:
           in: query
           required: false
           schema:
-            $ref: '#/components/schemas/MomentFilter'
+            type: string
+            const: SEARCHING
+        - name: exclude_today
+          in: query
+          required: false
+          description: true이면 사용자 기준 오늘 등록한 사진을 제외합니다.
+          schema:
+            type: boolean
+            default: false
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/PageSize'
       responses:
@@ -303,6 +311,38 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MomentListResponse'
+
+  /matches/unviewed/next:
+    get:
+      tags: [Matches]
+      summary: 가장 오래된 미확인 과거 매칭 조회
+      description: 오늘 사진을 제외하고 사용자별 viewed_at이 없는 매칭 한 건과 총 개수를 반환합니다.
+      operationId: getNextUnviewedMatch
+      responses:
+        '200':
+          description: 조회 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnviewedMatchResponse'
+
+  /matches/{match_id}/viewed:
+    patch:
+      tags: [Matches]
+      summary: 매칭 결과 확인 처리
+      description: 사용자별 viewed_at을 기록하며 반복 호출해도 같은 결과를 반환합니다.
+      operationId: markMatchViewed
+      parameters:
+        - $ref: '#/components/parameters/MatchId'
+      responses:
+        '200':
+          description: 확인 처리 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ViewedMatchResponse'
+        '404':
+          $ref: '#/components/responses/MatchNotFound'
 
   /matches/{match_id}:
     parameters:
@@ -986,6 +1026,16 @@ components:
             - type: string
               format: uuid
             - type: 'null'
+        partner_image_url:
+          oneOf:
+            - type: string
+              format: uri
+            - type: 'null'
+        matched_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
 
     PhotoRejection:
       type: object
@@ -1055,37 +1105,37 @@ components:
             data:
               $ref: '#/components/schemas/TodayPhotoData'
 
-    MomentFilter:
-      type: string
-      enum: [ALL, SEARCHING, MATCHED, EXPIRED, HIDDEN]
-      default: ALL
-
-    Moment:
+    MomentPhoto:
       type: object
-      required: [photo, category]
+      required: [photo_id, image_url, status, registered_at]
       properties:
-        category:
-          $ref: '#/components/schemas/MomentFilter'
-        photo:
-          $ref: '#/components/schemas/Photo'
-        match_summary:
-          oneOf:
-            - $ref: '#/components/schemas/MatchSummary'
-            - type: 'null'
-
-    MatchSummary:
-      type: object
-      required: [id, matched_at, postcard_state]
-      properties:
-        id:
+        photo_id:
           type: string
           format: uuid
-        matched_at:
+        image_url:
+          type: string
+          format: uri
+        ai_title:
+          oneOf:
+            - type: string
+            - type: 'null'
+        status:
+          type: string
+          const: SEARCHING
+        registered_at:
           type: string
           format: date-time
-        postcard_state:
-          type: string
-          enum: [CAN_WRITE, WAITING_FOR_FIRST, SENT, NEW_RECEIVED, COMPLETED]
+        search_expires_at:
+          oneOf:
+            - type: string
+              format: date-time
+            - type: 'null'
+        remaining_days:
+          oneOf:
+            - type: integer
+              minimum: 0
+              maximum: 7
+            - type: 'null'
 
     MomentListData:
       type: object
@@ -1094,7 +1144,7 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/Moment'
+            $ref: '#/components/schemas/MomentPhoto'
         next_cursor:
           oneOf:
             - type: string
@@ -1109,6 +1159,66 @@ components:
           properties:
             data:
               $ref: '#/components/schemas/MomentListData'
+
+    UnviewedMatch:
+      type: object
+      required: [match_id, my_photo_id, my_image_url, partner_image_url, matched_at]
+      properties:
+        match_id:
+          type: string
+          format: uuid
+        my_photo_id:
+          type: string
+          format: uuid
+        my_image_url:
+          type: string
+          format: uri
+        partner_image_url:
+          type: string
+          format: uri
+        ai_title:
+          oneOf:
+            - type: string
+            - type: 'null'
+        matched_at:
+          type: string
+          format: date-time
+
+    UnviewedMatchData:
+      type: object
+      required: [match, unviewed_match_count]
+      properties:
+        match:
+          oneOf:
+            - $ref: '#/components/schemas/UnviewedMatch'
+            - type: 'null'
+        unviewed_match_count:
+          type: integer
+          minimum: 0
+
+    UnviewedMatchResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/UnviewedMatchData'
+
+    ViewedMatchResponse:
+      allOf:
+        - $ref: '#/components/schemas/SuccessEnvelope'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [match_id, viewed_at]
+              properties:
+                match_id:
+                  type: string
+                  format: uuid
+                viewed_at:
+                  type: string
+                  format: date-time
 
     Match:
       type: object

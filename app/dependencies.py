@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import AuthService
 from app.errors import ApiError
 from app.kakao import KakaoClient
-from app.repositories import UserRepository
+from app.repositories import HomeRepository, UserRepository
 from app.tokens import TokenClaims, TokenService
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -33,6 +33,12 @@ def get_user_repository(
     return UserRepository(session)
 
 
+def get_home_repository(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> HomeRepository:
+    return HomeRepository(session)
+
+
 def get_auth_service(
     kakao: Annotated[KakaoClient, Depends(get_kakao_client)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
@@ -48,4 +54,3 @@ def require_access_token(
     if credentials is None or credentials.scheme.lower() != "bearer":
         raise ApiError(401, "AUTHENTICATION_REQUIRED", "인증이 필요합니다.")
     return service.decode(credentials.credentials, "access")
-

@@ -18,7 +18,6 @@ class ApiResponse(BaseModel, Generic[T]):
 
 class KakaoLoginRequest(BaseModel):
     """카카오 로그인 요청."""
-
     access_token: str = Field(
         min_length=1,
         description="Flutter 카카오 SDK에서 발급받은 카카오 Access Token",
@@ -28,7 +27,6 @@ class KakaoLoginRequest(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     """토큰 재발급 또는 로그아웃 요청."""
-
     refresh_token: str = Field(
         min_length=1,
         description="DALM 로그인 또는 토큰 재발급 응답으로 받은 Refresh Token",

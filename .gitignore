@@ -6,6 +6,8 @@ __pycache__/
 .venv/
 dist/
 build/
+assets/
+scripts/
 node_modules/
 .neon
 .env.local

@@ -41,6 +41,15 @@ Flutter 클라이언트에 REST API를 제공하고 인증, 사용자, 사진, A
 
 > Refresh Token은 Redis에 TTL과 함께 저장되며 Lua 스크립트로 원자적으로 회전·폐기합니다.
 
+## Swagger API 문서
+
+- 로컬 Swagger UI: http://localhost:8000/docs
+- 로컬 OpenAPI JSON: http://localhost:8000/openapi.json
+- Production Swagger UI: https://dalm-api-s4c3oo7osa-du.a.run.app/docs
+- Production OpenAPI JSON: https://dalm-api-s4c3oo7osa-du.a.run.app/openapi.json
+
+로컬 Swagger UI는 아래의 API 서버 실행 명령을 실행한 뒤 접속할 수 있습니다.
+
 ## 프로젝트 구조
 
 ```text
@@ -123,8 +132,6 @@ uvicorn app.main:app --reload
 ```
 
 - API 서버: `http://localhost:8000`
-- Swagger UI: `http://localhost:8000/docs`
-- OpenAPI JSON: `http://localhost:8000/openapi.json`
 - 상태 확인: `http://localhost:8000/health`
 
 ## Docker Compose 실행

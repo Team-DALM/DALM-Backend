@@ -109,7 +109,20 @@ def create_app(
                 resolved_cache.close(),
             )
 
-    app = FastAPI(title="DALM API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="DALM API",
+        description="DALM Flutter 앱에서 사용하는 백엔드 REST API입니다.",
+        version="0.1.0",
+        openapi_tags=[
+            {"name": "Auth", "description": "카카오 로그인과 서비스 토큰 관리"},
+            {"name": "Home", "description": "홈 화면 상태 조회"},
+            {"name": "Photos", "description": "오늘 등록한 사진 조회"},
+            {"name": "Moments", "description": "매칭을 기다리는 순간 목록 조회"},
+            {"name": "Matches", "description": "새 매칭 조회 및 확인 처리"},
+            {"name": "System", "description": "서버 및 의존 서비스 상태 확인"},
+        ],
+        lifespan=lifespan,
+    )
     app.state.token_service = TokenService(resolved_settings, resolved_refresh_store)
     app.state.kakao_client = resolved_kakao_client
     app.state.apple_client = resolved_apple_client
@@ -117,11 +130,16 @@ def create_app(
     app.add_exception_handler(RedisError, infrastructure_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(SQLAlchemyError, infrastructure_error_handler)  # type: ignore[arg-type]
 
-    @app.get("/health", tags=["System"])
+    @app.get("/health", tags=["System"], summary="서버 상태 확인")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    @app.get("/ready", tags=["System"])
+    @app.get(
+        "/ready",
+        tags=["System"],
+        summary="서비스 준비 상태 확인",
+        description="PostgreSQL과 Redis 연결 상태를 확인합니다.",
+    )
     async def readiness() -> Response:
         database_status, redis_status = await asyncio.gather(
             _dependency_status(resolved_database),
@@ -139,7 +157,16 @@ def create_app(
             },
         )
 
-    @app.post("/v1/auth/kakao", response_model=ApiResponse[AuthData], tags=["Auth"])
+    @app.post(
+        "/v1/auth/kakao",
+        response_model=ApiResponse[AuthData],
+        tags=["Auth"],
+        summary="카카오 로그인",
+        description=(
+            "Flutter에서 발급받은 카카오 Access Token으로 로그인합니다. "
+            "처음 로그인한 사용자는 회원 정보를 생성하며 HTTP 201을 반환합니다."
+        ),
+    )
     async def login_with_kakao(
         request: KakaoLoginRequest,
         response: Response,
@@ -159,14 +186,26 @@ def create_app(
         response.status_code = status.HTTP_201_CREATED if is_new_user else status.HTTP_200_OK
         return ApiResponse(data=data)
 
-    @app.post("/v1/auth/refresh", response_model=ApiResponse[TokenPair], tags=["Auth"])
+    @app.post(
+        "/v1/auth/refresh",
+        response_model=ApiResponse[TokenPair],
+        tags=["Auth"],
+        summary="서비스 토큰 재발급",
+        description="Refresh Token을 검증하고 새로운 Access Token과 Refresh Token을 발급합니다.",
+    )
     async def refresh_token(
         request: RefreshTokenRequest,
         service: Annotated[TokenService, Depends(get_token_service)],
     ) -> ApiResponse[TokenPair]:
         return ApiResponse(data=await service.rotate(request.refresh_token))
 
-    @app.post("/v1/auth/logout", status_code=status.HTTP_204_NO_CONTENT, tags=["Auth"])
+    @app.post(
+        "/v1/auth/logout",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["Auth"],
+        summary="로그아웃",
+        description="Bearer Access Token을 검증한 뒤 전달받은 Refresh Token을 폐기합니다.",
+    )
     async def logout(
         request: RefreshTokenRequest,
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -174,7 +213,13 @@ def create_app(
     ) -> None:
         await service.revoke(request.refresh_token, claims.subject)
 
-    @app.get("/v1/home", response_model=ApiResponse[HomeData], tags=["Home"])
+    @app.get(
+        "/v1/home",
+        response_model=ApiResponse[HomeData],
+        tags=["Home"],
+        summary="홈 화면 상태 조회",
+        description="로그인 사용자의 오늘 날짜와 사진 등록 가능 여부를 조회합니다.",
+    )
     async def get_home(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
     ) -> ApiResponse[HomeData]:
@@ -220,6 +265,8 @@ def create_app(
         "/v1/photos/today",
         response_model=ApiResponse[TodayPhotoData],
         tags=["Photos"],
+        summary="오늘의 사진 조회",
+        description="로그인 사용자가 오늘 등록한 사진과 처리·매칭 상태를 조회합니다.",
     )
     async def get_today_photo(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -267,6 +314,8 @@ def create_app(
         "/v1/moments",
         response_model=ApiResponse[MomentListData],
         tags=["Moments"],
+        summary="매칭 대기 순간 목록 조회",
+        description="로그인 사용자의 매칭 대기 사진을 커서 기반 페이지네이션으로 조회합니다.",
     )
     async def list_moments(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -312,6 +361,8 @@ def create_app(
         "/v1/matches/unviewed/next",
         response_model=ApiResponse[UnviewedMatchData],
         tags=["Matches"],
+        summary="확인하지 않은 다음 매칭 조회",
+        description="아직 확인하지 않은 매칭 중 다음 항목과 전체 미확인 개수를 조회합니다.",
     )
     async def get_next_unviewed_match(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -327,6 +378,8 @@ def create_app(
         "/v1/matches/{match_id}/viewed",
         response_model=ApiResponse[ViewedMatchData],
         tags=["Matches"],
+        summary="매칭 확인 처리",
+        description="지정한 매칭을 사용자가 확인한 상태로 변경합니다.",
     )
     async def mark_match_viewed(
         match_id: UUID,

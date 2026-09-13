@@ -1,4 +1,5 @@
-from datetime import date, datetime
+from datetime import date as Date
+from datetime import datetime
 from enum import StrEnum
 from typing import Generic, Literal, TypeVar
 from uuid import UUID
@@ -9,12 +10,19 @@ T = TypeVar("T")
 
 
 class ApiResponse(BaseModel, Generic[T]):
-    data: T
-    error: None = None
+    """API 공통 성공 응답."""
+
+    data: T = Field(description="요청 결과 데이터")
+    error: None = Field(default=None, description="성공 응답에서는 항상 null")
 
 
 class KakaoLoginRequest(BaseModel):
-    access_token: str = Field(min_length=1)
+    """카카오 로그인 요청."""
+    access_token: str = Field(
+        min_length=1,
+        description="Flutter 카카오 SDK에서 발급받은 카카오 Access Token",
+        examples=["kakao-access-token"],
+    )
 
 
 class AppleLoginRequest(BaseModel):
@@ -22,30 +30,44 @@ class AppleLoginRequest(BaseModel):
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str = Field(min_length=1)
+    """토큰 재발급 또는 로그아웃 요청."""
+    refresh_token: str = Field(
+        min_length=1,
+        description="DALM 로그인 또는 토큰 재발급 응답으로 받은 Refresh Token",
+    )
 
 
 class TokenPair(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: Literal["Bearer"] = "Bearer"
-    expires_in: int
+    """DALM 서비스 인증 토큰 묶음."""
+
+    access_token: str = Field(description="보호 API 호출에 사용하는 JWT Access Token")
+    refresh_token: str = Field(description="서비스 토큰 재발급에 사용하는 Refresh Token")
+    token_type: Literal["Bearer"] = Field(
+        default="Bearer", description="Authorization 헤더에 사용하는 인증 방식"
+    )
+    expires_in: int = Field(description="Access Token 만료까지 남은 시간(초)")
 
 
 class AuthUser(BaseModel):
-    id: UUID
-    nickname: str | None
-    status: str
+    """로그인한 사용자 정보."""
+
+    id: UUID = Field(description="사용자 고유 ID")
+    nickname: str | None = Field(description="사용자 닉네임. 미설정 시 null")
+    status: str = Field(description="사용자 계정 상태")
 
 
 class AuthData(BaseModel):
-    is_new_user: bool
-    onboarding_required: bool
-    tokens: TokenPair
-    user: AuthUser
+    """로그인 결과."""
+
+    is_new_user: bool = Field(description="이번 로그인에서 새로 가입한 사용자인지 여부")
+    onboarding_required: bool = Field(description="약관 동의와 프로필 설정이 필요한지 여부")
+    tokens: TokenPair = Field(description="DALM 서비스 인증 토큰")
+    user: AuthUser = Field(description="로그인한 사용자 정보")
 
 
 class HomeState(StrEnum):
+    """홈 화면 표시 상태."""
+
     EMPTY = "EMPTY"
     TODAY_AVAILABLE_WITH_HISTORY = "TODAY_AVAILABLE_WITH_HISTORY"
     TODAY_SEARCHING = "TODAY_SEARCHING"
@@ -54,83 +76,125 @@ class HomeState(StrEnum):
 
 
 class HomePhotoSummary(BaseModel):
-    id: UUID
-    image_url: str
-    captured_at: datetime
-    search_day: int = Field(ge=1, le=7)
+    """홈 화면에 표시할 사진 요약."""
+
+    id: UUID = Field(description="사진 고유 ID")
+    image_url: str = Field(description="사진 이미지 URL")
+    captured_at: datetime = Field(description="사진 촬영 시각")
+    search_day: int = Field(description="매칭 탐색 진행 일수", ge=1, le=7)
 
 
 class HomeMatchSummary(BaseModel):
-    id: UUID
-    photo_id: UUID
-    photo_image_url: str
-    matched_at: datetime
-    distance_km: float | None = Field(default=None, ge=0)
+    """홈 화면에 표시할 새 매칭 요약."""
+
+    id: UUID = Field(description="매칭 고유 ID")
+    photo_id: UUID = Field(description="내 사진 고유 ID")
+    photo_image_url: str = Field(description="매칭된 상대 사진 이미지 URL")
+    matched_at: datetime = Field(description="매칭 성사 시각")
+    distance_km: float | None = Field(
+        default=None, description="상대와의 거리(km). 알 수 없으면 null", ge=0
+    )
 
 
 class HomeData(BaseModel):
-    date: date
-    state: HomeState
-    can_upload_today: bool
-    today_photo: HomePhotoSummary | None = None
-    searching_photos: list[HomePhotoSummary] = Field(default_factory=list)
-    new_match: HomeMatchSummary | None = None
+    """홈 화면 구성에 필요한 상태 데이터."""
+
+    date: Date = Field(description="한국 시간 기준 오늘 날짜")
+    state: HomeState = Field(description="프론트 화면 분기에 사용하는 홈 상태")
+    can_upload_today: bool = Field(description="오늘 새 사진을 등록할 수 있는지 여부")
+    today_photo: HomePhotoSummary | None = Field(
+        default=None, description="오늘 등록한 사진. 없으면 null"
+    )
+    searching_photos: list[HomePhotoSummary] = Field(
+        default_factory=list, description="현재 매칭을 탐색 중인 사진 목록"
+    )
+    new_match: HomeMatchSummary | None = Field(
+        default=None, description="새로 확인할 매칭. 없으면 null"
+    )
 
 
 class PhotoRejection(BaseModel):
-    code: str
-    message: str
+    """사진 검증 거절 사유."""
+
+    code: str = Field(description="프론트 분기 처리용 거절 코드")
+    message: str = Field(description="사용자에게 표시할 거절 사유")
 
 
 class TodayPhoto(BaseModel):
-    id: UUID
-    status: str
-    image_url: str
-    ai_title: str | None = None
-    registered_at: datetime
-    search_expires_at: datetime | None = None
-    remaining_days: int | None = Field(default=None, ge=0, le=7)
-    rejection: PhotoRejection | None = None
-    match_id: UUID | None = None
-    partner_image_url: str | None = None
-    matched_at: datetime | None = None
+    """오늘 등록한 사진과 처리 상태."""
+
+    id: UUID = Field(description="사진 고유 ID")
+    status: str = Field(description="사진 처리 상태")
+    image_url: str = Field(description="내 사진 이미지 URL")
+    ai_title: str | None = Field(default=None, description="AI가 생성한 사진 제목")
+    registered_at: datetime = Field(description="사진 등록 시각")
+    search_expires_at: datetime | None = Field(
+        default=None, description="매칭 탐색 종료 예정 시각"
+    )
+    remaining_days: int | None = Field(
+        default=None, description="매칭 탐색 종료까지 남은 일수", ge=0, le=7
+    )
+    rejection: PhotoRejection | None = Field(
+        default=None, description="사진이 거절된 경우의 사유"
+    )
+    match_id: UUID | None = Field(default=None, description="성사된 매칭 고유 ID")
+    partner_image_url: str | None = Field(
+        default=None, description="매칭된 상대 사진 이미지 URL"
+    )
+    matched_at: datetime | None = Field(default=None, description="매칭 성사 시각")
 
 
 class TodayPhotoData(BaseModel):
-    can_register: bool
-    photo: TodayPhoto | None
+    """오늘의 사진 조회 결과."""
+
+    can_register: bool = Field(description="오늘 사진을 등록할 수 있는지 여부")
+    photo: TodayPhoto | None = Field(description="오늘 등록한 사진. 없으면 null")
 
 
 class MomentPhoto(BaseModel):
-    photo_id: UUID
-    image_url: str
-    ai_title: str | None = None
-    status: str
-    registered_at: datetime
-    search_expires_at: datetime | None = None
-    remaining_days: int | None = Field(default=None, ge=0, le=7)
+    """매칭을 기다리는 순간 사진."""
+
+    photo_id: UUID = Field(description="사진 고유 ID")
+    image_url: str = Field(description="사진 이미지 URL")
+    ai_title: str | None = Field(default=None, description="AI가 생성한 사진 제목")
+    status: str = Field(description="사진 처리 상태")
+    registered_at: datetime = Field(description="사진 등록 시각")
+    search_expires_at: datetime | None = Field(
+        default=None, description="매칭 탐색 종료 예정 시각"
+    )
+    remaining_days: int | None = Field(
+        default=None, description="매칭 탐색 종료까지 남은 일수", ge=0, le=7
+    )
 
 
 class MomentListData(BaseModel):
-    items: list[MomentPhoto]
-    next_cursor: str | None
-    has_next: bool
+    """매칭 대기 순간 목록 조회 결과."""
+
+    items: list[MomentPhoto] = Field(description="현재 페이지의 순간 목록")
+    next_cursor: str | None = Field(description="다음 페이지 조회용 커서. 없으면 null")
+    has_next: bool = Field(description="다음 페이지 존재 여부")
 
 
 class UnviewedMatch(BaseModel):
-    match_id: UUID
-    my_photo_id: UUID
-    my_image_url: str
-    partner_image_url: str
-    ai_title: str | None = None
-    matched_at: datetime
+    """아직 확인하지 않은 매칭."""
+
+    match_id: UUID = Field(description="매칭 고유 ID")
+    my_photo_id: UUID = Field(description="매칭에 사용된 내 사진 고유 ID")
+    my_image_url: str = Field(description="내 사진 이미지 URL")
+    partner_image_url: str = Field(description="매칭된 상대 사진 이미지 URL")
+    ai_title: str | None = Field(default=None, description="AI가 생성한 매칭 제목")
+    matched_at: datetime = Field(description="매칭 성사 시각")
 
 
 class UnviewedMatchData(BaseModel):
-    match: UnviewedMatch | None
-    unviewed_match_count: int = Field(ge=0)
+    """확인하지 않은 다음 매칭 조회 결과."""
+
+    match: UnviewedMatch | None = Field(description="다음 미확인 매칭. 없으면 null")
+    unviewed_match_count: int = Field(description="전체 미확인 매칭 개수", ge=0)
 
 
 class ViewedMatchData(BaseModel):
-    match_id: UUID
-    viewed_at: datetime
+    """매칭 확인 처리 결과."""
+
+    match_id: UUID = Field(description="확인 처리한 매칭 고유 ID")
+    viewed_at: datetime = Field(description="매칭을 확인한 시각")

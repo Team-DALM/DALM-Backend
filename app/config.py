@@ -9,6 +9,10 @@ class Settings:
     redis_url: str = "redis://localhost:6380/0"
     kakao_user_info_url: str = "https://kapi.kakao.com/v2/user/me"
     kakao_timeout_seconds: float = 5.0
+    apple_client_ids: tuple[str, ...] = ()
+    apple_jwks_url: str = "https://appleid.apple.com/auth/keys"
+    apple_issuer: str = "https://appleid.apple.com"
+    apple_timeout_seconds: float = 5.0
     access_token_ttl_seconds: int = 1_800
     refresh_token_ttl_seconds: int = 2_592_000
     jwt_algorithm: str = "HS256"
@@ -30,6 +34,16 @@ class Settings:
                 "https://kapi.kakao.com/v2/user/me",
             ),
             kakao_timeout_seconds=float(os.getenv("DALM_KAKAO_TIMEOUT_SECONDS", "5")),
+            apple_client_ids=tuple(
+                value.strip()
+                for value in os.getenv("DALM_APPLE_CLIENT_IDS", "").split(",")
+                if value.strip()
+            ),
+            apple_jwks_url=os.getenv(
+                "DALM_APPLE_JWKS_URL", "https://appleid.apple.com/auth/keys"
+            ),
+            apple_issuer=os.getenv("DALM_APPLE_ISSUER", "https://appleid.apple.com"),
+            apple_timeout_seconds=float(os.getenv("DALM_APPLE_TIMEOUT_SECONDS", "5")),
             access_token_ttl_seconds=int(
                 os.getenv("DALM_ACCESS_TOKEN_TTL_SECONDS", "1800")
             ),
@@ -37,4 +51,3 @@ class Settings:
                 os.getenv("DALM_REFRESH_TOKEN_TTL_SECONDS", "2592000")
             ),
         )
-

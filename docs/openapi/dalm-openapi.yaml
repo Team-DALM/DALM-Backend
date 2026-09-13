@@ -21,7 +21,7 @@ servers:
     description: Production placeholder
 tags:
   - name: Auth
-    description: 카카오 로그인과 서비스 토큰
+    description: 소셜 로그인과 서비스 토큰
   - name: Users
     description: 온보딩, 프로필, 계정
   - name: Photos
@@ -50,6 +50,36 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/KakaoLoginRequest'
+      responses:
+        '200':
+          description: 기존 회원 로그인 성공
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '201':
+          description: 신규 회원 인증 성공, 온보딩 필요
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+        '403':
+          $ref: '#/components/responses/AccountRestricted'
+
+  /auth/apple:
+    post:
+      tags: [Auth]
+      summary: Apple 로그인
+      operationId: loginWithApple
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppleLoginRequest'
       responses:
         '200':
           description: 기존 회원 로그인 성공
@@ -806,6 +836,15 @@ components:
           type: string
           minLength: 1
           description: 카카오 SDK에서 발급받은 Access Token
+
+    AppleLoginRequest:
+      type: object
+      required: [identity_token]
+      properties:
+        identity_token:
+          type: string
+          minLength: 1
+          description: Sign in with Apple에서 발급받은 identityToken JWT
 
     RefreshTokenRequest:
       type: object

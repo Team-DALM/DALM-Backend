@@ -25,6 +25,10 @@ class KakaoLoginRequest(BaseModel):
     )
 
 
+class AppleLoginRequest(BaseModel):
+    identity_token: str = Field(min_length=1)
+
+
 class RefreshTokenRequest(BaseModel):
     """토큰 재발급 또는 로그아웃 요청."""
     refresh_token: str = Field(

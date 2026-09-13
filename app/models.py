@@ -23,7 +23,8 @@ class User(Base):
         primary_key=True,
         default=uuid4,
     )
-    kakao_id: Mapped[str] = mapped_column(String(100), index=True)
+    kakao_id: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
+    apple_id: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     nickname: Mapped[str | None] = mapped_column(String(12), unique=True, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default=UserStatus.ACTIVE.value)
     created_at: Mapped[datetime] = mapped_column(

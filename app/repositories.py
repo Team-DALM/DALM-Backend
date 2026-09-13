@@ -31,6 +31,24 @@ class UserRepository:
         await self._session.refresh(user)
         return user
 
+    async def get_by_apple_id(self, apple_id: str) -> User | None:
+        result = await self._session.execute(select(User).where(User.apple_id == apple_id))
+        return result.scalar_one_or_none()
+
+    async def create_from_apple(self, apple_id: str) -> User:
+        user = User(apple_id=apple_id)
+        self._session.add(user)
+        try:
+            await self._session.commit()
+        except IntegrityError:
+            await self._session.rollback()
+            existing = await self.get_by_apple_id(apple_id)
+            if existing is None:
+                raise
+            return existing
+        await self._session.refresh(user)
+        return user
+
 
 @dataclass(frozen=True)
 class MatchCardRow:

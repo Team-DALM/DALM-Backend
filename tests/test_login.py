@@ -2,6 +2,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.apple import AppleProfile
 from app.auth import AuthService
 from app.config import Settings
 from app.dependencies import get_auth_service
@@ -26,6 +27,12 @@ class FakeKakaoClient:
         return KakaoProfile(kakao_id="123456789")
 
 
+class FakeAppleClient:
+    async def verify_identity_token(self, identity_token: str) -> AppleProfile:
+        assert identity_token == "apple-identity-token"
+        return AppleProfile(apple_id="001234.abcd")
+
+
 class FakeUserStore:
     def __init__(self, user: User | None = None) -> None:
         self.user = user
@@ -37,16 +44,25 @@ class FakeUserStore:
         self.user = make_user(kakao_id=kakao_id)
         return self.user
 
+    async def get_by_apple_id(self, apple_id: str) -> User | None:
+        return self.user
+
+    async def create_from_apple(self, apple_id: str) -> User:
+        self.user = make_user(kakao_id=None, apple_id=apple_id)
+        return self.user
+
 
 def make_user(
     *,
-    kakao_id: str = "123456789",
+    kakao_id: str | None = "123456789",
+    apple_id: str | None = None,
     nickname: str | None = None,
     status: str = UserStatus.ACTIVE.value,
 ) -> User:
     return User(
         id=uuid4(),
         kakao_id=kakao_id,
+        apple_id=apple_id,
         nickname=nickname,
         status=status,
     )
@@ -57,6 +73,7 @@ def make_client(users: FakeUserStore) -> TestClient:
     app = create_app(TEST_SETTINGS, database=dependency, cache=dependency)
     app.dependency_overrides[get_auth_service] = lambda: AuthService(
         FakeKakaoClient(),
+        FakeAppleClient(),
         users,
         app.state.token_service,
     )
@@ -106,3 +123,32 @@ def test_restricted_kakao_user_is_rejected() -> None:
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "ACCOUNT_RESTRICTED"
 
+
+def test_new_apple_user_is_created_and_requires_onboarding() -> None:
+    users = FakeUserStore()
+    with make_client(users) as client:
+        response = client.post(
+            "/v1/auth/apple",
+            json={"identity_token": "apple-identity-token"},
+        )
+
+    assert response.status_code == 201
+    body = response.json()["data"]
+    assert users.user is not None
+    assert users.user.apple_id == "001234.abcd"
+    assert users.user.kakao_id is None
+    assert body["is_new_user"] is True
+    assert body["onboarding_required"] is True
+    assert body["tokens"]["token_type"] == "Bearer"
+
+
+def test_existing_apple_user_logs_in_with_200() -> None:
+    user = make_user(kakao_id=None, apple_id="001234.abcd", nickname="달미")
+    with make_client(FakeUserStore(user)) as client:
+        response = client.post(
+            "/v1/auth/apple",
+            json={"identity_token": "apple-identity-token"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["is_new_user"] is False

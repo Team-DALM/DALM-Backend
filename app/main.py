@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.apple import AppleClient
 from app.auth import AuthService
 from app.cache import Cache
 from app.config import Settings
@@ -29,6 +30,7 @@ from app.kakao import KakaoClient
 from app.repositories import HomeRepository
 from app.schemas import (
     ApiResponse,
+    AppleLoginRequest,
     AuthData,
     HomeData,
     HomeState,
@@ -73,6 +75,7 @@ def create_app(
     cache: HealthDependency | None = None,
     refresh_store: RefreshTokenStore | None = None,
     kakao_client: KakaoClient | None = None,
+    apple_client: AppleClient | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings.from_env()
     resolved_database = database or Database(resolved_settings.database_url)
@@ -86,6 +89,12 @@ def create_app(
     resolved_kakao_client = kakao_client or KakaoClient(
         resolved_settings.kakao_user_info_url,
         resolved_settings.kakao_timeout_seconds,
+    )
+    resolved_apple_client = apple_client or AppleClient(
+        resolved_settings.apple_jwks_url,
+        resolved_settings.apple_issuer,
+        resolved_settings.apple_client_ids,
+        resolved_settings.apple_timeout_seconds,
     )
 
     @asynccontextmanager
@@ -103,6 +112,7 @@ def create_app(
     app = FastAPI(title="DALM API", version="0.1.0", lifespan=lifespan)
     app.state.token_service = TokenService(resolved_settings, resolved_refresh_store)
     app.state.kakao_client = resolved_kakao_client
+    app.state.apple_client = resolved_apple_client
     app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RedisError, infrastructure_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(SQLAlchemyError, infrastructure_error_handler)  # type: ignore[arg-type]
@@ -136,6 +146,16 @@ def create_app(
         service: Annotated[AuthService, Depends(get_auth_service)],
     ) -> ApiResponse[AuthData]:
         data, is_new_user = await service.login_with_kakao(request.access_token)
+        response.status_code = status.HTTP_201_CREATED if is_new_user else status.HTTP_200_OK
+        return ApiResponse(data=data)
+
+    @app.post("/v1/auth/apple", response_model=ApiResponse[AuthData], tags=["Auth"])
+    async def login_with_apple(
+        request: AppleLoginRequest,
+        response: Response,
+        service: Annotated[AuthService, Depends(get_auth_service)],
+    ) -> ApiResponse[AuthData]:
+        data, is_new_user = await service.login_with_apple(request.identity_token)
         response.status_code = status.HTTP_201_CREATED if is_new_user else status.HTTP_200_OK
         return ApiResponse(data=data)
 

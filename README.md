@@ -29,6 +29,7 @@ Flutter 클라이언트에 REST API를 제공하고 인증, 사용자, 사진, A
 - `GET /health`: 서버 프로세스 상태 확인
 - `GET /ready`: PostgreSQL·Redis 연결 준비 상태 확인
 - `POST /v1/auth/kakao`: 카카오 로그인 및 신규 사용자 생성
+- `POST /v1/auth/apple`: Apple identityToken 검증, 로그인 및 신규 사용자 생성
 - `POST /v1/auth/refresh`: Access/Refresh Token 재발급
 - `POST /v1/auth/logout`: Bearer Access Token 검증 및 로그아웃 요청
 - 공통 성공 응답: `data`, `error`
@@ -105,6 +106,10 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 | `DALM_REDIS_URL` | `redis://localhost:6380/0` | Redis 연결 URL |
 | `DALM_KAKAO_USER_INFO_URL` | 카카오 사용자 정보 API | 카카오 Access Token 검증 URL |
 | `DALM_KAKAO_TIMEOUT_SECONDS` | `5` | 카카오 API 제한 시간(초) |
+| `DALM_APPLE_CLIENT_IDS` | 없음 | 허용할 Apple 앱 Bundle ID 또는 Service ID. 여러 값은 쉼표로 구분 |
+| `DALM_APPLE_JWKS_URL` | Apple 공개키 URL | Apple 공개키 조회 URL |
+| `DALM_APPLE_ISSUER` | `https://appleid.apple.com` | Apple identityToken 발급자 |
+| `DALM_APPLE_TIMEOUT_SECONDS` | `5` | Apple 공개키 API 제한 시간(초) |
 | `DALM_ACCESS_TOKEN_TTL_SECONDS` | `1800` | Access Token 유효 시간(초) |
 | `DALM_REFRESH_TOKEN_TTL_SECONDS` | `2592000` | Refresh Token 유효 시간(초) |
 
@@ -198,6 +203,25 @@ Android Emulator에서 호스트의 로컬 서버에 접근할 때는 환경에 
   }
 }
 ```
+
+### Apple 로그인
+
+Flutter의 `sign_in_with_apple` 등으로 받은 `identityToken`을 그대로 전달합니다. 이메일과
+이름은 최초 승인 시에만 제공될 수 있으므로 로그인 요청의 사용자 식별값으로 사용하지
+않습니다.
+
+```http
+POST /v1/auth/apple
+Content-Type: application/json
+
+{"identity_token":"<Apple identityToken JWT>"}
+```
+
+서버는 Apple 공개키로 JWT 서명과 `iss`, `aud`, `exp`를 검증합니다. iOS Bundle ID와
+웹 Service ID를 쉼표로 구분해 `DALM_APPLE_CLIENT_IDS`에 설정할 수 있습니다.
+
+성공 응답과 상태 코드는 카카오 로그인과 같습니다. 신규 회원은 `201`, 기존 회원은
+`200`이며 응답의 DALM Access/Refresh Token을 이후 API 호출에 사용합니다.
 
 ### 토큰 재발급
 

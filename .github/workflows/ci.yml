@@ -138,6 +138,8 @@ jobs:
             DALM_DATABASE_URL=dalm-database-url:latest
             DALM_REDIS_URL=dalm-redis-url:latest
           secrets_update_strategy: overwrite
+          env_vars: |-
+            DALM_APPLE_CLIENT_IDS=${{ vars.APPLE_CLIENT_IDS }}
           flags: >-
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --port=8080

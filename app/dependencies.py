@@ -5,6 +5,7 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.apple import AppleClient
 from app.auth import AuthService
 from app.errors import ApiError
 from app.kakao import KakaoClient
@@ -20,6 +21,10 @@ def get_token_service(request: Request) -> TokenService:
 
 def get_kakao_client(request: Request) -> KakaoClient:
     return request.app.state.kakao_client
+
+
+def get_apple_client(request: Request) -> AppleClient:
+    return request.app.state.apple_client
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -41,10 +46,11 @@ def get_home_repository(
 
 def get_auth_service(
     kakao: Annotated[KakaoClient, Depends(get_kakao_client)],
+    apple: Annotated[AppleClient, Depends(get_apple_client)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
     tokens: Annotated[TokenService, Depends(get_token_service)],
 ) -> AuthService:
-    return AuthService(kakao, users, tokens)
+    return AuthService(kakao, apple, users, tokens)
 
 
 def require_access_token(

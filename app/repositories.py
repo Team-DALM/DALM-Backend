@@ -232,6 +232,29 @@ class NotificationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def create(
+        self,
+        *,
+        user_id: UUID,
+        type: str,
+        title: str,
+        message: str,
+        target_type: str | None,
+        target_id: UUID | None,
+    ) -> Notification:
+        notification = Notification(
+            user_id=user_id,
+            type=type,
+            title=title,
+            message=message,
+            target_type=target_type,
+            target_id=target_id,
+        )
+        self._session.add(notification)
+        await self._session.commit()
+        await self._session.refresh(notification)
+        return notification
+
     async def list(
         self,
         user_id: UUID,

@@ -789,11 +789,12 @@ def create_app(
         repository: Annotated[PostcardRepository, Depends(get_postcard_repository)],
         idempotency_key: Annotated[UUID | None, Header(alias="Idempotency-Key")] = None,
     ) -> ApiResponse[PostcardData]:
-        del idempotency_key
         content = request.content.strip()
         if not content:
             raise ApiError(422, "INVALID_POSTCARD_CONTENT", "엽서 내용을 입력해주세요.")
-        row = await repository.send(authenticated_user_id(claims), match_id, content)
+        row = await repository.send(
+            authenticated_user_id(claims), match_id, content, idempotency_key
+        )
         return ApiResponse(data=postcard_data(row))
 
     async def postcard_list(

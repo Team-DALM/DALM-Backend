@@ -25,6 +25,7 @@ def upgrade() -> None:
         sa.Column("sender_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("receiver_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("content", sa.String(200), nullable=False),
+        sa.Column("idempotency_key", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("read_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "sent_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
@@ -38,6 +39,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["receiver_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("match_id", "sender_id"),
+        sa.UniqueConstraint("sender_id", "idempotency_key"),
     )
     op.create_index("postcards_receiver_sent_ix", "postcards", ["receiver_id", "sent_at"])
     op.create_index("postcards_sender_sent_ix", "postcards", ["sender_id", "sent_at"])

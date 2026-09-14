@@ -370,7 +370,20 @@ class PostcardRepository:
             .join(viewer_photo, viewer_photo.id == viewer_participant.photo_id)
         )
 
-    async def send(self, user_id: UUID, match_id: UUID, content: str) -> PostcardRow:
+    async def send(
+        self, user_id: UUID, match_id: UUID, content: str, idempotency_key: UUID | None
+    ) -> PostcardRow:
+        if idempotency_key is not None:
+            existing_id = (
+                await self._session.execute(
+                    select(Postcard.id).where(
+                        Postcard.sender_id == user_id,
+                        Postcard.idempotency_key == idempotency_key,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing_id is not None:
+                return await self.get(user_id, existing_id)
         participants = list(
             (
                 await self._session.execute(
@@ -409,7 +422,11 @@ class PostcardRepository:
             if first_sent is None:
                 raise ApiError(409, "POSTCARD_ORDER_NOT_ALLOWED", "첫 엽서를 기다리고 있습니다.")
         postcard = Postcard(
-            match_id=match_id, sender_id=user_id, receiver_id=receiver_id, content=content
+            match_id=match_id,
+            sender_id=user_id,
+            receiver_id=receiver_id,
+            content=content,
+            idempotency_key=idempotency_key,
         )
         self._session.add(postcard)
         try:

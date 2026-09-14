@@ -43,8 +43,8 @@ class FakePostcardRepository:
         self.sent = None
         self.deleted = None
 
-    async def send(self, user_id, match_id, content):
-        self.sent = (user_id, match_id, content)
+    async def send(self, user_id, match_id, content, idempotency_key):
+        self.sent = (user_id, match_id, content, idempotency_key)
         item = row()
         self.rows = [item]
         return item
@@ -96,15 +96,16 @@ def make_client(repository=None):
 def test_send_postcard_trims_content():
     client, headers, repository = make_client()
     match_id = uuid4()
+    idempotency_key = uuid4()
 
     response = client.post(
         f"/v1/matches/{match_id}/postcards",
-        headers=headers,
+        headers={**headers, "Idempotency-Key": str(idempotency_key)},
         json={"content": "  반가워요  "},
     )
 
     assert response.status_code == 201
-    assert repository.sent == (USER_ID, match_id, "반가워요")
+    assert repository.sent == (USER_ID, match_id, "반가워요", idempotency_key)
 
 
 def test_send_postcard_rejects_blank_content():

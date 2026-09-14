@@ -329,3 +329,31 @@ class NotificationListData(BaseModel):
     unread_count: int = Field(ge=0)
     next_cursor: str | None
     has_next: bool
+
+
+class SendPostcardRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=200)
+
+
+class PostcardUser(BaseModel):
+    id: UUID
+    nickname: str
+    profile_image_url: str | None = None
+
+
+class PostcardData(BaseModel):
+    id: UUID
+    match_id: UUID
+    sender: PostcardUser
+    receiver: PostcardUser
+    content: str
+    is_read: bool
+    read_at: datetime | None
+    sent_at: datetime
+    moment_thumbnail_url: str
+
+
+class PostcardListData(BaseModel):
+    items: list[PostcardData]
+    next_cursor: str | None
+    has_next: bool

@@ -9,7 +9,7 @@ from typing import Annotated, Protocol
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, Query, Response, status
+from fastapi import Depends, FastAPI, Header, Query, Response, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
@@ -24,6 +24,7 @@ from app.dependencies import (
     get_auth_service,
     get_home_repository,
     get_notification_repository,
+    get_postcard_repository,
     get_report_repository,
     get_safety_repository,
     get_token_service,
@@ -41,6 +42,8 @@ from app.repositories import (
     HomeRepository,
     MatchDetailRow,
     NotificationRepository,
+    PostcardRepository,
+    PostcardRow,
     ReportRepository,
     SafetyRepository,
 )
@@ -66,9 +69,13 @@ from app.schemas import (
     NotificationData,
     NotificationListData,
     PhotoRejection,
+    PostcardData,
+    PostcardListData,
+    PostcardUser,
     PublicUser,
     RefreshTokenRequest,
     ReportData,
+    SendPostcardRequest,
     TodayPhoto,
     TodayPhotoData,
     TokenPair,
@@ -755,6 +762,116 @@ def create_app(
         repository: Annotated[NotificationRepository, Depends(get_notification_repository)],
     ) -> None:
         await repository.mark_all_read(authenticated_user_id(claims))
+
+    def postcard_data(row: PostcardRow) -> PostcardData:
+        return PostcardData(
+            id=row.id,
+            match_id=row.match_id,
+            sender=PostcardUser(id=row.sender_id, nickname=row.sender_nickname),
+            receiver=PostcardUser(id=row.receiver_id, nickname=row.receiver_nickname),
+            content=row.content,
+            is_read=row.read_at is not None,
+            read_at=row.read_at,
+            sent_at=row.sent_at,
+            moment_thumbnail_url=row.moment_thumbnail_url,
+        )
+
+    @app.post(
+        "/v1/matches/{match_id}/postcards",
+        response_model=ApiResponse[PostcardData],
+        status_code=status.HTTP_201_CREATED,
+        tags=["Postcards"],
+    )
+    async def send_postcard(
+        match_id: UUID,
+        request: SendPostcardRequest,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[PostcardRepository, Depends(get_postcard_repository)],
+        idempotency_key: Annotated[UUID | None, Header(alias="Idempotency-Key")] = None,
+    ) -> ApiResponse[PostcardData]:
+        del idempotency_key
+        content = request.content.strip()
+        if not content:
+            raise ApiError(422, "INVALID_POSTCARD_CONTENT", "엽서 내용을 입력해주세요.")
+        row = await repository.send(authenticated_user_id(claims), match_id, content)
+        return ApiResponse(data=postcard_data(row))
+
+    async def postcard_list(
+        mailbox: str, user_id: UUID, repository: PostcardRepository, size: int, cursor: str | None
+    ) -> ApiResponse[PostcardListData]:
+        rows = await repository.list(
+            user_id, mailbox=mailbox, size=size, cursor=decode_cursor(cursor)
+        )
+        has_next = len(rows) > size
+        page = rows[:size]
+        next_cursor = encode_cursor(page[-1].sent_at, page[-1].id) if has_next and page else None
+        return ApiResponse(
+            data=PostcardListData(
+                items=[postcard_data(row) for row in page],
+                next_cursor=next_cursor,
+                has_next=has_next,
+            )
+        )
+
+    @app.get(
+        "/v1/postcards/received", response_model=ApiResponse[PostcardListData], tags=["Postcards"]
+    )
+    async def list_received_postcards(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[PostcardRepository, Depends(get_postcard_repository)],
+        size: Annotated[int, Query(ge=1, le=50)] = 20,
+        cursor: str | None = None,
+    ) -> ApiResponse[PostcardListData]:
+        return await postcard_list(
+            "received", authenticated_user_id(claims), repository, size, cursor
+        )
+
+    @app.get("/v1/postcards/sent", response_model=ApiResponse[PostcardListData], tags=["Postcards"])
+    async def list_sent_postcards(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[PostcardRepository, Depends(get_postcard_repository)],
+        size: Annotated[int, Query(ge=1, le=50)] = 20,
+        cursor: str | None = None,
+    ) -> ApiResponse[PostcardListData]:
+        return await postcard_list("sent", authenticated_user_id(claims), repository, size, cursor)
+
+    @app.get(
+        "/v1/postcards/{postcard_id}", response_model=ApiResponse[PostcardData], tags=["Postcards"]
+    )
+    async def get_postcard(
+        postcard_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[PostcardRepository, Depends(get_postcard_repository)],
+    ) -> ApiResponse[PostcardData]:
+        return ApiResponse(
+            data=postcard_data(await repository.get(authenticated_user_id(claims), postcard_id))
+        )
+
+    @app.delete(
+        "/v1/postcards/{postcard_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Postcards"]
+    )
+    async def delete_postcard(
+        postcard_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[PostcardRepository, Depends(get_postcard_repository)],
+    ) -> None:
+        await repository.delete(authenticated_user_id(claims), postcard_id)
+
+    @app.patch(
+        "/v1/postcards/{postcard_id}/read",
+        response_model=ApiResponse[PostcardData],
+        tags=["Postcards"],
+    )
+    async def mark_postcard_read(
+        postcard_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[PostcardRepository, Depends(get_postcard_repository)],
+    ) -> ApiResponse[PostcardData]:
+        return ApiResponse(
+            data=postcard_data(
+                await repository.mark_read(authenticated_user_id(claims), postcard_id)
+            )
+        )
 
     return app
 

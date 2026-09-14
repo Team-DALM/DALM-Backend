@@ -22,22 +22,26 @@ from app.database import Database
 from app.dependencies import (
     get_auth_service,
     get_home_repository,
+    get_safety_repository,
     get_token_service,
     require_access_token,
 )
 from app.errors import ApiError, api_error_handler, infrastructure_error_handler
 from app.kakao import KakaoClient
-from app.repositories import HomeRepository
+from app.repositories import HomeRepository, SafetyRepository
 from app.schemas import (
     ApiResponse,
     AppleLoginRequest,
     AuthData,
+    BlockedUser,
+    BlockedUserListData,
     HomeData,
     HomeState,
     KakaoLoginRequest,
     MomentListData,
     MomentPhoto,
     PhotoRejection,
+    PublicUser,
     RefreshTokenRequest,
     TodayPhoto,
     TodayPhotoData,
@@ -390,6 +394,63 @@ def create_app(
         if viewed_at is None:
             raise ApiError(404, "MATCH_NOT_FOUND", "매칭을 찾을 수 없습니다.")
         return ApiResponse(data=ViewedMatchData(match_id=match_id, viewed_at=viewed_at))
+
+    @app.get(
+        "/v1/blocks",
+        response_model=ApiResponse[BlockedUserListData],
+        tags=["Safety"],
+    )
+    async def list_blocked_users(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[SafetyRepository, Depends(get_safety_repository)],
+        size: Annotated[int, Query(ge=1, le=50)] = 20,
+        cursor: str | None = None,
+    ) -> ApiResponse[BlockedUserListData]:
+        rows = await repository.list_blocks(
+            authenticated_user_id(claims), size=size, cursor=decode_cursor(cursor)
+        )
+        has_next = len(rows) > size
+        page = rows[:size]
+        next_cursor = (
+            encode_cursor(page[-1].blocked_at, page[-1].user_id)
+            if has_next and page
+            else None
+        )
+        return ApiResponse(
+            data=BlockedUserListData(
+                items=[
+                    BlockedUser(
+                        user=PublicUser(
+                            id=row.user_id,
+                            nickname=row.nickname,
+                            profile_image_url=row.profile_image_url,
+                        ),
+                        blocked_at=row.blocked_at,
+                    )
+                    for row in page
+                ],
+                next_cursor=next_cursor,
+                has_next=has_next,
+            )
+        )
+
+    @app.post("/v1/blocks/{user_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Safety"])
+    async def block_user(
+        user_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[SafetyRepository, Depends(get_safety_repository)],
+    ) -> None:
+        await repository.block(authenticated_user_id(claims), user_id)
+
+    @app.delete(
+        "/v1/blocks/{user_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Safety"]
+    )
+    async def unblock_user(
+        user_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[SafetyRepository, Depends(get_safety_repository)],
+    ) -> None:
+        await repository.unblock(authenticated_user_id(claims), user_id)
 
     return app
 

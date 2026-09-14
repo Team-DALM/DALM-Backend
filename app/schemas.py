@@ -357,3 +357,24 @@ class PostcardListData(BaseModel):
     items: list[PostcardData]
     next_cursor: str | None
     has_next: bool
+
+
+class DeviceTokenRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=512)
+    platform: Literal["IOS", "ANDROID"]
+
+
+class NotificationSettingsData(BaseModel):
+    validation_enabled: bool
+    match_enabled: bool
+    postcard_enabled: bool
+    search_expired_enabled: bool
+    system_enabled: bool
+
+
+class UpdateNotificationSettingsRequest(BaseModel):
+    validation_enabled: bool | None = None
+    match_enabled: bool | None = None
+    postcard_enabled: bool | None = None
+    search_expired_enabled: bool | None = None
+    system_enabled: bool | None = None

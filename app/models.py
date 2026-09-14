@@ -158,3 +158,31 @@ class Postcard(Base):
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     sender_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     receiver_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeviceToken(Base):
+    __tablename__ = "device_tokens"
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("users.id"), index=True
+    )
+    token: Mapped[str] = mapped_column(String(512), unique=True)
+    platform: Mapped[str] = mapped_column(String(10))
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class NotificationSetting(Base):
+    __tablename__ = "notification_settings"
+
+    user_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("users.id"), primary_key=True
+    )
+    validation_enabled: Mapped[bool] = mapped_column(default=True)
+    match_enabled: Mapped[bool] = mapped_column(default=True)
+    postcard_enabled: Mapped[bool] = mapped_column(default=True)
+    search_expired_enabled: Mapped[bool] = mapped_column(default=True)
+    system_enabled: Mapped[bool] = mapped_column(default=True)

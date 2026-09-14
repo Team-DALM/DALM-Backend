@@ -311,3 +311,21 @@ class BlockedUserListData(BaseModel):
     items: list[BlockedUser]
     next_cursor: str | None
     has_next: bool
+
+
+class NotificationData(BaseModel):
+    id: UUID
+    type: str
+    title: str
+    message: str
+    target_type: str | None = None
+    target_id: UUID | None = None
+    is_read: bool
+    created_at: datetime
+
+
+class NotificationListData(BaseModel):
+    items: list[NotificationData]
+    unread_count: int = Field(ge=0)
+    next_cursor: str | None
+    has_next: bool

@@ -9,7 +9,13 @@ from app.apple import AppleClient
 from app.auth import AuthService
 from app.errors import ApiError
 from app.kakao import KakaoClient
-from app.repositories import HomeRepository, ReportRepository, SafetyRepository, UserRepository
+from app.repositories import (
+    HomeRepository,
+    NotificationRepository,
+    ReportRepository,
+    SafetyRepository,
+    UserRepository,
+)
 from app.tokens import TokenClaims, TokenService
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -42,6 +48,12 @@ def get_home_repository(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> HomeRepository:
     return HomeRepository(session)
+
+
+def get_notification_repository(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> NotificationRepository:
+    return NotificationRepository(session)
 
 
 def get_report_repository(

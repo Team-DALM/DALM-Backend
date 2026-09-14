@@ -23,6 +23,7 @@ from app.database import Database
 from app.dependencies import (
     get_auth_service,
     get_home_repository,
+    get_notification_repository,
     get_report_repository,
     get_safety_repository,
     get_token_service,
@@ -35,7 +36,14 @@ from app.errors import (
     request_validation_error_handler,
 )
 from app.kakao import KakaoClient
-from app.repositories import HomeRepository, MatchDetailRow, ReportRepository, SafetyRepository
+from app.models import Notification
+from app.repositories import (
+    HomeRepository,
+    MatchDetailRow,
+    NotificationRepository,
+    ReportRepository,
+    SafetyRepository,
+)
 from app.schemas import (
     ApiResponse,
     AppleLoginRequest,
@@ -55,6 +63,8 @@ from app.schemas import (
     MatchVisibilityRequest,
     MomentListData,
     MomentPhoto,
+    NotificationData,
+    NotificationListData,
     PhotoRejection,
     PublicUser,
     RefreshTokenRequest,
@@ -677,7 +687,75 @@ def create_app(
         repository: Annotated[SafetyRepository, Depends(get_safety_repository)],
     ) -> None:
         await repository.unblock(authenticated_user_id(claims), user_id)
-        
+
+    def notification_data(notification: Notification) -> NotificationData:
+        return NotificationData(
+            id=notification.id,
+            type=notification.type,
+            title=notification.title,
+            message=notification.message,
+            target_type=notification.target_type,
+            target_id=notification.target_id,
+            is_read=notification.read_at is not None,
+            created_at=notification.created_at,
+        )
+
+    @app.get(
+        "/v1/notifications",
+        response_model=ApiResponse[NotificationListData],
+        tags=["Notifications"],
+    )
+    async def list_notifications(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[NotificationRepository, Depends(get_notification_repository)],
+        unread_only: bool = False,
+        size: Annotated[int, Query(ge=1, le=50)] = 20,
+        cursor: str | None = None,
+    ) -> ApiResponse[NotificationListData]:
+        items, unread_count = await repository.list(
+            authenticated_user_id(claims),
+            unread_only=unread_only,
+            size=size,
+            cursor=decode_cursor(cursor),
+        )
+        has_next = len(items) > size
+        page = items[:size]
+        next_cursor = (
+            encode_cursor(page[-1].created_at, page[-1].id) if has_next and page else None
+        )
+        return ApiResponse(
+            data=NotificationListData(
+                items=[notification_data(item) for item in page],
+                unread_count=unread_count,
+                next_cursor=next_cursor,
+                has_next=has_next,
+            )
+        )
+
+    @app.patch(
+        "/v1/notifications/{notification_id}/read",
+        response_model=ApiResponse[NotificationData],
+        tags=["Notifications"],
+    )
+    async def mark_notification_read(
+        notification_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[NotificationRepository, Depends(get_notification_repository)],
+    ) -> ApiResponse[NotificationData]:
+        item = await repository.mark_read(authenticated_user_id(claims), notification_id)
+        return ApiResponse(data=notification_data(item))
+
+    @app.patch(
+        "/v1/notifications/read-all",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["Notifications"],
+    )
+    async def mark_all_notifications_read(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[NotificationRepository, Depends(get_notification_repository)],
+    ) -> None:
+        await repository.mark_all_read(authenticated_user_id(claims))
+
     return app
 
 

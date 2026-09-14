@@ -119,4 +119,6 @@ class Report(Base):
     target_type: Mapped[str] = mapped_column(String(20))
     target_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), index=True)
     reason_code: Mapped[str] = mapped_column(String(50))
+    detail: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="PENDING")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -22,16 +22,18 @@ from app.database import Database
 from app.dependencies import (
     get_auth_service,
     get_home_repository,
+    get_report_repository,
     get_token_service,
     require_access_token,
 )
 from app.errors import ApiError, api_error_handler, infrastructure_error_handler
 from app.kakao import KakaoClient
-from app.repositories import HomeRepository
+from app.repositories import HomeRepository, ReportRepository
 from app.schemas import (
     ApiResponse,
     AppleLoginRequest,
     AuthData,
+    CreateReportRequest,
     HomeData,
     HomeState,
     KakaoLoginRequest,
@@ -39,6 +41,7 @@ from app.schemas import (
     MomentPhoto,
     PhotoRejection,
     RefreshTokenRequest,
+    ReportData,
     TodayPhoto,
     TodayPhotoData,
     TokenPair,
@@ -390,6 +393,35 @@ def create_app(
         if viewed_at is None:
             raise ApiError(404, "MATCH_NOT_FOUND", "매칭을 찾을 수 없습니다.")
         return ApiResponse(data=ViewedMatchData(match_id=match_id, viewed_at=viewed_at))
+
+    @app.post(
+        "/v1/reports",
+        response_model=ApiResponse[ReportData],
+        status_code=status.HTTP_201_CREATED,
+        tags=["Safety"],
+    )
+    async def create_report(
+        request: CreateReportRequest,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[ReportRepository, Depends(get_report_repository)],
+    ) -> ApiResponse[ReportData]:
+        report = await repository.create(
+            reporter_id=authenticated_user_id(claims),
+            target_type=request.target_type,
+            target_id=request.target_id,
+            reason_code=request.reason_code,
+            detail=request.detail.strip() if request.detail else None,
+        )
+        return ApiResponse(
+            data=ReportData(
+                id=report.id,
+                target_type=report.target_type,
+                target_id=report.target_id,
+                reason_code=report.reason_code,
+                status=report.status,
+                created_at=report.created_at,
+            )
+        )
 
     return app
 

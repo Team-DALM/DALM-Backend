@@ -198,3 +198,27 @@ class ViewedMatchData(BaseModel):
 
     match_id: UUID = Field(description="확인 처리한 매칭 고유 ID")
     viewed_at: datetime = Field(description="매칭을 확인한 시각")
+
+
+class CreateReportRequest(BaseModel):
+    target_type: Literal["PHOTO", "POSTCARD", "USER"]
+    target_id: UUID
+    reason_code: Literal[
+        "INAPPROPRIATE_PHOTO",
+        "SEXUAL_OR_VIOLENT",
+        "HATE_OR_DISCRIMINATION",
+        "PERSONAL_INFORMATION",
+        "ADVERTISEMENT",
+        "OFFENSIVE_POSTCARD",
+        "OTHER",
+    ]
+    detail: str | None = Field(default=None, max_length=1000)
+
+
+class ReportData(BaseModel):
+    id: UUID
+    target_type: str
+    target_id: UUID
+    reason_code: str
+    status: str
+    created_at: datetime

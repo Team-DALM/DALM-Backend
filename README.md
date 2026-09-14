@@ -32,6 +32,10 @@ Flutter 클라이언트에 REST API를 제공하고 인증, 사용자, 사진, A
 - `POST /v1/auth/apple`: Apple identityToken 검증, 로그인 및 신규 사용자 생성
 - `POST /v1/auth/refresh`: Access/Refresh Token 재발급
 - `POST /v1/auth/logout`: Bearer Access Token 검증 및 로그아웃 요청
+- `POST /v1/users/onboarding`: 필수 약관 동의 및 닉네임·소개 등록
+- `GET /v1/users/me`: 내 프로필과 활동 통계 조회
+- `PATCH /v1/users/me`: 닉네임·소개 수정
+- `DELETE /v1/users/me`: 회원 탈퇴 처리
 - 공통 성공 응답: `data`, `error`
 - 공통 오류 응답: `error.code`, `error.message`, `error.request_id`
 - Refresh Token 회전 및 동일 토큰 재사용 방지
@@ -40,6 +44,8 @@ Flutter 클라이언트에 REST API를 제공하고 인증, 사용자, 사진, A
 [`docs/openapi/dalm-openapi.yaml`](docs/openapi/dalm-openapi.yaml)을 기준으로 합니다.
 
 > Refresh Token은 Redis에 TTL과 함께 저장되며 Lua 스크립트로 원자적으로 회전·폐기합니다.
+> 프로필 이미지 등록·삭제는 비공개 Object Storage 설정 완료 후 연결할 예정이며, 현재 요청
+> 시 `PROFILE_IMAGE_STORAGE_NOT_CONFIGURED` 오류를 반환합니다.
 
 ## Swagger API 문서
 

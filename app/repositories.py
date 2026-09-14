@@ -19,6 +19,7 @@ from app.models import (
     Postcard,
     Report,
     User,
+    UserTerm,
 )
 
 
@@ -61,6 +62,98 @@ class UserRepository:
             return existing
         await self._session.refresh(user)
         return user
+
+    async def get_by_id(self, user_id: UUID) -> User | None:
+        result = await self._session.execute(select(User).where(User.id == user_id))
+        return result.scalar_one_or_none()
+
+    async def complete_onboarding(
+        self,
+        user_id: UUID,
+        *,
+        nickname: str,
+        bio: str | None,
+        marketing_agreed: bool,
+        service_terms_version: str,
+        privacy_policy_version: str,
+    ) -> User:
+        user = await self.get_by_id(user_id)
+        if user is None or user.status == "WITHDRAWN":
+            raise ApiError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
+        if not user.onboarding_required:
+            raise ApiError(409, "ONBOARDING_ALREADY_COMPLETED", "이미 온보딩을 완료했습니다.")
+        user.nickname = nickname
+        user.bio = bio
+        user.marketing_agreed = marketing_agreed
+        terms = (
+            ("SERVICE", service_terms_version, True),
+            ("PRIVACY", privacy_policy_version, True),
+            ("AGE_14", "1", True),
+            ("MARKETING", "1", marketing_agreed),
+        )
+        self._session.add_all(
+            UserTerm(user_id=user_id, term_type=kind, term_version=version, agreed=agreed)
+            for kind, version, agreed in terms
+        )
+        await self._commit_profile_change()
+        await self._session.refresh(user)
+        return user
+
+    async def update_profile(
+        self, user_id: UUID, *, nickname: str | None, bio: str | None, update_bio: bool
+    ) -> User:
+        user = await self.get_by_id(user_id)
+        if user is None or user.status == "WITHDRAWN":
+            raise ApiError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
+        if user.onboarding_required:
+            raise ApiError(409, "ONBOARDING_REQUIRED", "온보딩을 먼저 완료해주세요.")
+        if nickname is not None:
+            user.nickname = nickname
+        if update_bio:
+            user.bio = bio
+        await self._commit_profile_change()
+        await self._session.refresh(user)
+        return user
+
+    async def withdraw(self, user_id: UUID) -> None:
+        user = await self.get_by_id(user_id)
+        if user is None or user.status == "WITHDRAWN":
+            raise ApiError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
+        user.status = "WITHDRAWN"
+        user.nickname = None
+        user.bio = None
+        user.profile_image_key = None
+        user.withdrawn_at = datetime.now(UTC)
+        await self._session.commit()
+
+    async def get_stats(self, user_id: UUID) -> tuple[int, int, int]:
+        photo_count = int(
+            (
+                await self._session.execute(
+                    select(func.count(Photo.id)).where(
+                        Photo.user_id == user_id, Photo.status != "DELETED"
+                    )
+                )
+            ).scalar_one()
+        )
+        match_count = int(
+            (
+                await self._session.execute(
+                    select(func.count(MatchParticipant.match_id)).where(
+                        MatchParticipant.user_id == user_id,
+                        MatchParticipant.hidden_at.is_(None),
+                    )
+                )
+            ).scalar_one()
+        )
+        return photo_count, match_count, 0
+
+    async def _commit_profile_change(self) -> None:
+        try:
+            await self._session.commit()
+        except IntegrityError as exc:
+            await self._session.rollback()
+            raise ApiError(409, "NICKNAME_CONFLICT", "이미 사용 중인 닉네임입니다.") from exc
 
 
 @dataclass(frozen=True)

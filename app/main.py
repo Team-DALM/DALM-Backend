@@ -10,6 +10,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Query, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
@@ -25,7 +26,12 @@ from app.dependencies import (
     get_token_service,
     require_access_token,
 )
-from app.errors import ApiError, api_error_handler, infrastructure_error_handler
+from app.errors import (
+    ApiError,
+    api_error_handler,
+    infrastructure_error_handler,
+    request_validation_error_handler,
+)
 from app.kakao import KakaoClient
 from app.repositories import HomeRepository
 from app.schemas import (
@@ -127,6 +133,7 @@ def create_app(
     app.state.kakao_client = resolved_kakao_client
     app.state.apple_client = resolved_apple_client
     app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RequestValidationError, request_validation_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RedisError, infrastructure_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(SQLAlchemyError, infrastructure_error_handler)  # type: ignore[arg-type]
 

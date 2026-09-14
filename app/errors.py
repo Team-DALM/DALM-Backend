@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
@@ -42,6 +43,18 @@ async def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
     )
 
 
+async def request_validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    del exc
+    return _error_response(
+        request,
+        status_code=422,
+        code="VALIDATION_ERROR",
+        message="요청값이 올바르지 않습니다.",
+    )
+
+
 async def infrastructure_error_handler(request: Request, exc: Exception) -> JSONResponse:
     del exc
     return _error_response(
@@ -50,4 +63,3 @@ async def infrastructure_error_handler(request: Request, exc: Exception) -> JSON
         code="SERVICE_UNAVAILABLE",
         message="일시적으로 서비스를 이용할 수 없습니다.",
     )
-

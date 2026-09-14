@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.dependencies import get_home_repository
 from app.main import create_app
-from app.repositories import MatchCardRow
+from app.repositories import MatchCardRow, MatchDetailRow, MomentRow
 from app.token_store import InMemoryRefreshTokenStore
 
 TEST_SETTINGS = Settings(jwt_secret="test-secret-that-is-long-enough-for-home-apis")
@@ -31,6 +31,8 @@ class FakeHomeRepository:
         self.unviewed = (None, 0)
         self.viewed_at = None
         self.list_args = None
+        self.match_detail = None
+        self.visibility = None
 
     async def get_today_photo(self, user_id, today):
         assert user_id == USER_ID
@@ -45,6 +47,24 @@ class FakeHomeRepository:
         self.list_args = kwargs
         return self.searching_photos
 
+    async def list_moments(self, user_id, **kwargs):
+        assert user_id == USER_ID
+        self.list_args = kwargs
+        return [
+            MomentRow(
+                photo_id=item.id,
+                image_url=item.image_url,
+                ai_title=item.ai_title,
+                status=item.status,
+                registered_at=item.registered_at,
+                search_expires_at=item.search_expires_at,
+                match_id=getattr(item, "match_id", None),
+                matched_at=getattr(item, "matched_at", None),
+                hidden=getattr(item, "hidden", False),
+            )
+            for item in self.searching_photos
+        ]
+
     async def get_next_unviewed_match(self, user_id, today):
         assert user_id == USER_ID
         return self.unviewed
@@ -52,6 +72,15 @@ class FakeHomeRepository:
     async def mark_match_viewed(self, user_id, match_id):
         assert user_id == USER_ID
         return self.viewed_at
+
+    async def get_match_detail(self, user_id, match_id):
+        assert user_id == USER_ID
+        return self.match_detail
+
+    async def update_match_visibility(self, user_id, match_id, *, hidden):
+        assert user_id == USER_ID
+        self.visibility = hidden
+        return hidden
 
 
 def make_client(repository: FakeHomeRepository) -> tuple[TestClient, str]:
@@ -197,3 +226,54 @@ def test_viewing_unknown_match_returns_404() -> None:
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "MATCH_NOT_FOUND"
+
+
+def test_match_detail_returns_both_photos_and_partner() -> None:
+    repository = FakeHomeRepository()
+    now = datetime.now(UTC)
+    match_id = uuid4()
+    repository.match_detail = MatchDetailRow(
+        match_id=match_id,
+        my_photo_id=uuid4(),
+        my_image_url="https://example.com/mine.jpg",
+        my_registered_at=now - timedelta(days=2),
+        my_deleted=False,
+        partner_photo_id=uuid4(),
+        partner_image_url="https://example.com/partner.jpg",
+        partner_registered_at=now - timedelta(days=1),
+        partner_deleted=False,
+        partner_id=uuid4(),
+        partner_nickname="나란",
+        explanation="빛과 구도가 닮았어요.",
+        matched_at=now,
+        hidden=False,
+        blocked=False,
+    )
+    client, token = make_client(repository)
+
+    response = client.get(f"/v1/matches/{match_id}", headers=auth(token))
+
+    assert response.status_code == 200
+    assert response.json()["data"]["partner"]["nickname"] == "나란"
+    assert response.json()["data"]["postcard_permission"] == "CAN_SEND"
+
+
+def test_match_visibility_can_hide_and_restore() -> None:
+    repository = FakeHomeRepository()
+    client, token = make_client(repository)
+    match_id = uuid4()
+
+    hidden = client.patch(
+        f"/v1/matches/{match_id}/visibility",
+        headers=auth(token),
+        json={"hidden": True},
+    )
+    restored = client.patch(
+        f"/v1/matches/{match_id}/visibility",
+        headers=auth(token),
+        json={"hidden": False},
+    )
+
+    assert hidden.json()["data"]["hidden"] is True
+    assert restored.json()["data"]["hidden"] is False
+    assert repository.visibility is False

@@ -18,6 +18,7 @@ class ApiResponse(BaseModel, Generic[T]):
 
 class KakaoLoginRequest(BaseModel):
     """카카오 로그인 요청."""
+
     access_token: str = Field(
         min_length=1,
         description="Flutter 카카오 SDK에서 발급받은 카카오 Access Token",
@@ -31,6 +32,7 @@ class AppleLoginRequest(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     """토큰 재발급 또는 로그아웃 요청."""
+
     refresh_token: str = Field(
         min_length=1,
         description="DALM 로그인 또는 토큰 재발급 응답으로 받은 Refresh Token",
@@ -128,19 +130,13 @@ class TodayPhoto(BaseModel):
     image_url: str = Field(description="내 사진 이미지 URL")
     ai_title: str | None = Field(default=None, description="AI가 생성한 사진 제목")
     registered_at: datetime = Field(description="사진 등록 시각")
-    search_expires_at: datetime | None = Field(
-        default=None, description="매칭 탐색 종료 예정 시각"
-    )
+    search_expires_at: datetime | None = Field(default=None, description="매칭 탐색 종료 예정 시각")
     remaining_days: int | None = Field(
         default=None, description="매칭 탐색 종료까지 남은 일수", ge=0, le=7
     )
-    rejection: PhotoRejection | None = Field(
-        default=None, description="사진이 거절된 경우의 사유"
-    )
+    rejection: PhotoRejection | None = Field(default=None, description="사진이 거절된 경우의 사유")
     match_id: UUID | None = Field(default=None, description="성사된 매칭 고유 ID")
-    partner_image_url: str | None = Field(
-        default=None, description="매칭된 상대 사진 이미지 URL"
-    )
+    partner_image_url: str | None = Field(default=None, description="매칭된 상대 사진 이미지 URL")
     matched_at: datetime | None = Field(default=None, description="매칭 성사 시각")
 
 
@@ -159,12 +155,13 @@ class MomentPhoto(BaseModel):
     ai_title: str | None = Field(default=None, description="AI가 생성한 사진 제목")
     status: str = Field(description="사진 처리 상태")
     registered_at: datetime = Field(description="사진 등록 시각")
-    search_expires_at: datetime | None = Field(
-        default=None, description="매칭 탐색 종료 예정 시각"
-    )
+    search_expires_at: datetime | None = Field(default=None, description="매칭 탐색 종료 예정 시각")
     remaining_days: int | None = Field(
         default=None, description="매칭 탐색 종료까지 남은 일수", ge=0, le=7
     )
+    match_id: UUID | None = None
+    matched_at: datetime | None = None
+    hidden: bool = False
 
 
 class MomentListData(BaseModel):
@@ -198,3 +195,36 @@ class ViewedMatchData(BaseModel):
 
     match_id: UUID = Field(description="확인 처리한 매칭 고유 ID")
     viewed_at: datetime = Field(description="매칭을 확인한 시각")
+
+
+class MatchedPhoto(BaseModel):
+    id: UUID
+    image_url: str
+    registered_at: datetime
+    deleted: bool = False
+
+
+class MatchPartner(BaseModel):
+    id: UUID
+    nickname: str
+    profile_image_url: str | None = None
+
+
+class MatchDetailData(BaseModel):
+    id: UUID
+    my_photo: MatchedPhoto
+    partner_photo: MatchedPhoto
+    partner: MatchPartner | None
+    explanation: str
+    matched_at: datetime
+    hidden: bool
+    postcard_permission: Literal["CAN_SEND", "WAITING_FOR_FIRST", "ALREADY_SENT", "BLOCKED"]
+
+
+class MatchVisibilityRequest(BaseModel):
+    hidden: bool
+
+
+class MatchVisibilityData(BaseModel):
+    match_id: UUID
+    hidden: bool

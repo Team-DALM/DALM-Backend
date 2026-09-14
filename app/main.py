@@ -382,9 +382,11 @@ def create_app(
         request: WithdrawRequest,
         claims: Annotated[TokenClaims, Depends(require_access_token)],
         repository: Annotated[UserRepository, Depends(get_user_repository)],
+        token_service: Annotated[TokenService, Depends(get_token_service)],
     ) -> None:
         del request
         await repository.withdraw(authenticated_user_id(claims))
+        await token_service.revoke_all(claims.subject)
 
     @app.get(
         "/v1/home",

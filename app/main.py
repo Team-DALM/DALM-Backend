@@ -311,6 +311,62 @@ def create_app(
         )
 
     @app.get(
+        "/v1/photos/{photo_id}",
+        response_model=ApiResponse[TodayPhoto],
+        tags=["Photos"],
+    )
+    async def get_photo(
+        photo_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+    ) -> ApiResponse[TodayPhoto]:
+        user_id = authenticated_user_id(claims)
+        photo = await repository.get_photo(photo_id)
+        if photo is None or photo.status == "DELETED":
+            raise ApiError(404, "PHOTO_NOT_FOUND", "사진을 찾을 수 없습니다.")
+        if photo.user_id != user_id:
+            raise ApiError(403, "PHOTO_NOT_OWNED", "본인의 사진만 조회할 수 있습니다.")
+        match = (
+            await repository.get_match_card_for_photo(user_id, photo.id)
+            if photo.status == "MATCHED"
+            else None
+        )
+        rejection = (
+            PhotoRejection(code=photo.rejection_code, message=photo.rejection_message)
+            if photo.status == "REJECTED" and photo.rejection_code and photo.rejection_message
+            else None
+        )
+        return ApiResponse(
+            data=TodayPhoto(
+                id=photo.id,
+                status=photo.status,
+                image_url=photo.image_url,
+                ai_title=photo.ai_title,
+                registered_at=photo.registered_at,
+                search_expires_at=photo.search_expires_at,
+                remaining_days=(
+                    remaining_days(photo.search_expires_at) if photo.status == "SEARCHING" else None
+                ),
+                rejection=rejection,
+                match_id=match.match_id if match else None,
+                partner_image_url=match.partner_image_url if match else None,
+                matched_at=match.matched_at if match else None,
+            )
+        )
+
+    @app.delete(
+        "/v1/photos/{photo_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["Photos"],
+    )
+    async def delete_photo(
+        photo_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+    ) -> None:
+        await repository.delete_photo(authenticated_user_id(claims), photo_id)
+
+    @app.get(
         "/v1/moments",
         response_model=ApiResponse[MomentListData],
         tags=["Moments"],

@@ -43,10 +43,12 @@ def get_home_repository(
 ) -> HomeRepository:
     return HomeRepository(session)
 
+
 def get_report_repository(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ReportRepository:
     return ReportRepository(session)
+
 
 def get_safety_repository(
     session: Annotated[AsyncSession, Depends(get_session)],

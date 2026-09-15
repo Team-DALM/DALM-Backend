@@ -128,7 +128,16 @@ class ReportRepository:
             ).scalars().first()
             if participant is not None:
                 participant.hidden_at = datetime.now(UTC)
-                
+
+        try:
+            await self._session.commit()
+        except IntegrityError as exc:
+            await self._session.rollback()
+            raise ApiError(409, "REPORT_ALREADY_EXISTS", "이미 접수한 신고입니다.") from exc
+        await self._session.refresh(report)
+        return report
+
+
 @dataclass(frozen=True)
 class BlockedUserRow:
     user_id: UUID
@@ -179,9 +188,6 @@ class SafetyRepository:
             await self._session.commit()
         except IntegrityError as exc:
             await self._session.rollback()
-            raise ApiError(409, "REPORT_ALREADY_EXISTS", "이미 접수한 신고입니다.") from exc
-        await self._session.refresh(report)
-        return report
             raise ApiError(409, "USER_ALREADY_BLOCKED", "이미 차단한 사용자입니다.") from exc
 
     async def unblock(self, blocker_id: UUID, blocked_id: UUID) -> None:
@@ -189,6 +195,7 @@ class SafetyRepository:
             delete(Block).where(Block.blocker_id == blocker_id, Block.blocked_id == blocked_id)
         )
         await self._session.commit()
+
 
 class HomeRepository:
     def __init__(self, session: AsyncSession) -> None:

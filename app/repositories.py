@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from uuid import UUID
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -128,6 +128,53 @@ class ReportRepository:
             ).scalars().first()
             if participant is not None:
                 participant.hidden_at = datetime.now(UTC)
+                
+@dataclass(frozen=True)
+class BlockedUserRow:
+    user_id: UUID
+    nickname: str
+    profile_image_url: str | None
+    blocked_at: datetime
+
+
+class SafetyRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def list_blocks(
+        self,
+        blocker_id: UUID,
+        *,
+        size: int,
+        cursor: tuple[datetime, UUID] | None,
+    ) -> list[BlockedUserRow]:
+        query = (
+            select(Block.blocked_id, User.nickname, Block.created_at)
+            .join(User, User.id == Block.blocked_id)
+            .where(Block.blocker_id == blocker_id, User.status != "WITHDRAWN")
+            .order_by(Block.created_at.desc(), Block.blocked_id.desc())
+            .limit(size + 1)
+        )
+        if cursor:
+            blocked_at, user_id = cursor
+            query = query.where(
+                (Block.created_at < blocked_at)
+                | ((Block.created_at == blocked_at) & (Block.blocked_id < user_id))
+            )
+        rows = (await self._session.execute(query)).all()
+        return [BlockedUserRow(row[0], row[1] or "알 수 없는 사용자", None, row[2]) for row in rows]
+
+    async def block(self, blocker_id: UUID, blocked_id: UUID) -> None:
+        if blocker_id == blocked_id:
+            raise ApiError(409, "CANNOT_BLOCK_SELF", "본인은 차단할 수 없습니다.")
+        target = (
+            await self._session.execute(
+                select(User.id).where(User.id == blocked_id, User.status != "WITHDRAWN")
+            )
+        ).scalar_one_or_none()
+        if target is None:
+            raise ApiError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
+        self._session.add(Block(blocker_id=blocker_id, blocked_id=blocked_id))
         try:
             await self._session.commit()
         except IntegrityError as exc:
@@ -135,7 +182,13 @@ class ReportRepository:
             raise ApiError(409, "REPORT_ALREADY_EXISTS", "이미 접수한 신고입니다.") from exc
         await self._session.refresh(report)
         return report
+            raise ApiError(409, "USER_ALREADY_BLOCKED", "이미 차단한 사용자입니다.") from exc
 
+    async def unblock(self, blocker_id: UUID, blocked_id: UUID) -> None:
+        await self._session.execute(
+            delete(Block).where(Block.blocker_id == blocker_id, Block.blocked_id == blocked_id)
+        )
+        await self._session.commit()
 
 class HomeRepository:
     def __init__(self, session: AsyncSession) -> None:

@@ -199,7 +199,6 @@ class ViewedMatchData(BaseModel):
     match_id: UUID = Field(description="확인 처리한 매칭 고유 ID")
     viewed_at: datetime = Field(description="매칭을 확인한 시각")
 
-
 class CreateReportRequest(BaseModel):
     target_type: Literal["PHOTO", "POSTCARD", "USER"]
     target_id: UUID
@@ -222,3 +221,20 @@ class ReportData(BaseModel):
     reason_code: str
     status: str
     created_at: datetime
+
+class PublicUser(BaseModel):
+    id: UUID
+    nickname: str
+    profile_image_url: str | None = None
+
+
+class BlockedUser(BaseModel):
+    user: PublicUser
+    blocked_at: datetime
+
+
+class BlockedUserListData(BaseModel):
+    items: list[BlockedUser]
+    next_cursor: str | None
+    has_next: bool
+

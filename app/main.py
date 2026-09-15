@@ -35,7 +35,7 @@ from app.errors import (
     request_validation_error_handler,
 )
 from app.kakao import KakaoClient
-from app.repositories import HomeRepository, ReportRepository, SafetyRepository
+from app.repositories import HomeRepository, MatchDetailRow, ReportRepository, SafetyRepository
 from app.schemas import (
     ApiResponse,
     AppleLoginRequest,
@@ -48,6 +48,11 @@ from app.schemas import (
     HomePhotoSummary,
     HomeState,
     KakaoLoginRequest,
+    MatchDetailData,
+    MatchedPhoto,
+    MatchPartner,
+    MatchVisibilityData,
+    MatchVisibilityRequest,
     MomentListData,
     MomentPhoto,
     PhotoRejection,
@@ -451,14 +456,17 @@ def create_app(
     async def list_moments(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
         repository: Annotated[HomeRepository, Depends(get_home_repository)],
-        photo_status: Annotated[str, Query(alias="status", pattern="^SEARCHING$")] = "SEARCHING",
+        photo_status: Annotated[
+            str,
+            Query(alias="status", pattern="^(ALL|SEARCHING|MATCHED|EXPIRED|HIDDEN)$"),
+        ] = "ALL",
         exclude_today: bool = False,
         size: Annotated[int, Query(ge=1, le=50)] = 20,
         cursor: str | None = None,
     ) -> ApiResponse[MomentListData]:
-        del photo_status
-        photos = await repository.list_searching_photos(
+        photos = await repository.list_moments(
             authenticated_user_id(claims),
+            status=photo_status,
             today=datetime.now(ZoneInfo("Asia/Seoul")).date(),
             exclude_today=exclude_today,
             size=size,
@@ -467,19 +475,26 @@ def create_app(
         has_next = len(photos) > size
         page = photos[:size]
         next_cursor = (
-            encode_cursor(page[-1].registered_at, page[-1].id) if has_next and page else None
+            encode_cursor(page[-1].registered_at, page[-1].photo_id) if has_next and page else None
         )
         return ApiResponse(
             data=MomentListData(
                 items=[
                     MomentPhoto(
-                        photo_id=photo.id,
+                        photo_id=photo.photo_id,
                         image_url=photo.image_url,
                         ai_title=photo.ai_title,
                         status=photo.status,
                         registered_at=photo.registered_at,
                         search_expires_at=photo.search_expires_at,
-                        remaining_days=remaining_days(photo.search_expires_at),
+                        remaining_days=(
+                            remaining_days(photo.search_expires_at)
+                            if photo.status == "SEARCHING"
+                            else None
+                        ),
+                        match_id=photo.match_id,
+                        matched_at=photo.matched_at,
+                        hidden=photo.hidden,
                     )
                     for photo in page
                 ],
@@ -521,6 +536,61 @@ def create_app(
         if viewed_at is None:
             raise ApiError(404, "MATCH_NOT_FOUND", "매칭을 찾을 수 없습니다.")
         return ApiResponse(data=ViewedMatchData(match_id=match_id, viewed_at=viewed_at))
+
+    def match_detail_data(row: MatchDetailRow) -> MatchDetailData:
+        return MatchDetailData(
+            id=row.match_id,
+            my_photo=MatchedPhoto(
+                id=row.my_photo_id,
+                image_url=row.my_image_url,
+                registered_at=row.my_registered_at,
+                deleted=row.my_deleted,
+            ),
+            partner_photo=MatchedPhoto(
+                id=row.partner_photo_id,
+                image_url=row.partner_image_url,
+                registered_at=row.partner_registered_at,
+                deleted=row.partner_deleted,
+            ),
+            partner=MatchPartner(id=row.partner_id, nickname=row.partner_nickname),
+            explanation=row.explanation,
+            matched_at=row.matched_at,
+            hidden=row.hidden,
+            postcard_permission="BLOCKED" if row.blocked else "CAN_SEND",
+        )
+
+    @app.get(
+        "/v1/matches/{match_id}",
+        response_model=ApiResponse[MatchDetailData],
+        tags=["Matches"],
+    )
+    async def get_match(
+        match_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+    ) -> ApiResponse[MatchDetailData]:
+        row = await repository.get_match_detail(authenticated_user_id(claims), match_id)
+        if row is None:
+            raise ApiError(404, "MATCH_NOT_FOUND", "매칭을 찾을 수 없습니다.")
+        return ApiResponse(data=match_detail_data(row))
+
+    @app.patch(
+        "/v1/matches/{match_id}/visibility",
+        response_model=ApiResponse[MatchVisibilityData],
+        tags=["Matches"],
+    )
+    async def update_match_visibility(
+        match_id: UUID,
+        request: MatchVisibilityRequest,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+    ) -> ApiResponse[MatchVisibilityData]:
+        hidden = await repository.update_match_visibility(
+            authenticated_user_id(claims), match_id, hidden=request.hidden
+        )
+        if hidden is None:
+            raise ApiError(404, "MATCH_NOT_FOUND", "매칭을 찾을 수 없습니다.")
+        return ApiResponse(data=MatchVisibilityData(match_id=match_id, hidden=hidden))
 
     @app.post(
         "/v1/reports",

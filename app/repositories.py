@@ -62,6 +62,37 @@ class MatchCardRow:
     matched_at: datetime
 
 
+@dataclass(frozen=True)
+class MomentRow:
+    photo_id: UUID
+    image_url: str
+    ai_title: str | None
+    status: str
+    registered_at: datetime
+    search_expires_at: datetime | None
+    match_id: UUID | None
+    matched_at: datetime | None
+    hidden: bool
+
+
+@dataclass(frozen=True)
+class MatchDetailRow:
+    match_id: UUID
+    my_photo_id: UUID
+    my_image_url: str
+    my_registered_at: datetime
+    my_deleted: bool
+    partner_photo_id: UUID
+    partner_image_url: str
+    partner_registered_at: datetime
+    partner_deleted: bool
+    partner_id: UUID
+    partner_nickname: str
+    explanation: str
+    matched_at: datetime
+    hidden: bool
+    blocked: bool
+
 class ReportRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -283,6 +314,139 @@ class HomeRepository:
             )
         result = await self._session.execute(query)
         return list(result.scalars().all())
+
+    async def list_moments(
+        self,
+        user_id: UUID,
+        *,
+        status: str,
+        today: date,
+        exclude_today: bool,
+        size: int,
+        cursor: tuple[datetime, UUID] | None,
+    ) -> list[MomentRow]:
+        participant = aliased(MatchParticipant)
+        match = aliased(Match)
+        query = (
+            select(
+                Photo.id,
+                Photo.image_url,
+                Photo.ai_title,
+                Photo.status,
+                Photo.registered_at,
+                Photo.search_expires_at,
+                participant.match_id,
+                match.matched_at,
+                participant.hidden_at,
+            )
+            .outerjoin(
+                participant,
+                and_(participant.photo_id == Photo.id, participant.user_id == user_id),
+            )
+            .outerjoin(match, match.id == participant.match_id)
+            .where(Photo.user_id == user_id, Photo.deleted_at.is_(None))
+            .order_by(Photo.registered_at.desc(), Photo.id.desc())
+            .limit(size + 1)
+        )
+        if status == "HIDDEN":
+            query = query.where(participant.hidden_at.is_not(None))
+        elif status != "ALL":
+            query = query.where(Photo.status == status, participant.hidden_at.is_(None))
+        else:
+            query = query.where(participant.hidden_at.is_(None))
+        if exclude_today:
+            query = query.where(Photo.registered_date != today)
+        if cursor:
+            registered_at, photo_id = cursor
+            query = query.where(
+                (Photo.registered_at < registered_at)
+                | ((Photo.registered_at == registered_at) & (Photo.id < photo_id))
+            )
+        return [
+            MomentRow(*row[:-1], hidden=row[-1] is not None)
+            for row in (await self._session.execute(query)).all()
+        ]
+
+    async def get_match_detail(self, user_id: UUID, match_id: UUID) -> MatchDetailRow | None:
+        mine = aliased(MatchParticipant)
+        partner = aliased(MatchParticipant)
+        my_photo = aliased(Photo)
+        partner_photo = aliased(Photo)
+        partner_user = aliased(User)
+        row = (
+            await self._session.execute(
+                select(
+                    Match.id,
+                    my_photo.id,
+                    my_photo.image_url,
+                    my_photo.registered_at,
+                    my_photo.deleted_at,
+                    partner_photo.id,
+                    partner_photo.image_url,
+                    partner_photo.registered_at,
+                    partner_photo.deleted_at,
+                    partner_user.id,
+                    partner_user.nickname,
+                    Match.explanation,
+                    Match.matched_at,
+                    mine.hidden_at,
+                    exists(
+                        select(Block.blocker_id).where(
+                            or_(
+                                and_(
+                                    Block.blocker_id == user_id, Block.blocked_id == partner.user_id
+                                ),
+                                and_(
+                                    Block.blocker_id == partner.user_id, Block.blocked_id == user_id
+                                ),
+                            )
+                        )
+                    ),
+                )
+                .join(mine, and_(mine.match_id == Match.id, mine.user_id == user_id))
+                .join(partner, and_(partner.match_id == Match.id, partner.user_id != user_id))
+                .join(my_photo, my_photo.id == mine.photo_id)
+                .join(partner_photo, partner_photo.id == partner.photo_id)
+                .join(partner_user, partner_user.id == partner.user_id)
+                .where(Match.id == match_id)
+            )
+        ).one_or_none()
+        if row is None:
+            return None
+        return MatchDetailRow(
+            match_id=row[0],
+            my_photo_id=row[1],
+            my_image_url=row[2],
+            my_registered_at=row[3],
+            my_deleted=row[4] is not None,
+            partner_photo_id=row[5],
+            partner_image_url=row[6],
+            partner_registered_at=row[7],
+            partner_deleted=row[8] is not None,
+            partner_id=row[9],
+            partner_nickname=row[10] or "알 수 없는 사용자",
+            explanation=row[11],
+            matched_at=row[12],
+            hidden=row[13] is not None,
+            blocked=bool(row[14]),
+        )
+
+    async def update_match_visibility(
+        self, user_id: UUID, match_id: UUID, *, hidden: bool
+    ) -> bool | None:
+        participant = (
+            await self._session.execute(
+                select(MatchParticipant).where(
+                    MatchParticipant.match_id == match_id,
+                    MatchParticipant.user_id == user_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if participant is None:
+            return None
+        participant.hidden_at = datetime.now(UTC) if hidden else None
+        await self._session.commit()
+        return hidden
 
     async def get_next_unviewed_match(
         self, user_id: UUID, today: date

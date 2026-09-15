@@ -18,6 +18,7 @@ class ApiResponse(BaseModel, Generic[T]):
 
 class KakaoLoginRequest(BaseModel):
     """카카오 로그인 요청."""
+
     access_token: str = Field(
         min_length=1,
         description="Flutter 카카오 SDK에서 발급받은 카카오 Access Token",
@@ -31,6 +32,7 @@ class AppleLoginRequest(BaseModel):
 
 class RefreshTokenRequest(BaseModel):
     """토큰 재발급 또는 로그아웃 요청."""
+
     refresh_token: str = Field(
         min_length=1,
         description="DALM 로그인 또는 토큰 재발급 응답으로 받은 Refresh Token",
@@ -43,7 +45,8 @@ class TokenPair(BaseModel):
     access_token: str = Field(description="보호 API 호출에 사용하는 JWT Access Token")
     refresh_token: str = Field(description="서비스 토큰 재발급에 사용하는 Refresh Token")
     token_type: Literal["Bearer"] = Field(
-        default="Bearer", description="Authorization 헤더에 사용하는 인증 방식"
+        default="Bearer",
+        description="Authorization 헤더에 사용하는 인증 방식",
     )
     expires_in: int = Field(description="Access Token 만료까지 남은 시간(초)")
 
@@ -60,7 +63,9 @@ class AuthData(BaseModel):
     """로그인 결과."""
 
     is_new_user: bool = Field(description="이번 로그인에서 새로 가입한 사용자인지 여부")
-    onboarding_required: bool = Field(description="약관 동의와 프로필 설정이 필요한지 여부")
+    onboarding_required: bool = Field(
+        description="약관 동의와 프로필 설정이 필요한지 여부"
+    )
     tokens: TokenPair = Field(description="DALM 서비스 인증 토큰")
     user: AuthUser = Field(description="로그인한 사용자 정보")
 
@@ -92,7 +97,9 @@ class HomeMatchSummary(BaseModel):
     photo_image_url: str = Field(description="매칭된 상대 사진 이미지 URL")
     matched_at: datetime = Field(description="매칭 성사 시각")
     distance_km: float | None = Field(
-        default=None, description="상대와의 거리(km). 알 수 없으면 null", ge=0
+        default=None,
+        description="상대와의 거리(km). 알 수 없으면 null",
+        ge=0,
     )
 
 
@@ -103,13 +110,16 @@ class HomeData(BaseModel):
     state: HomeState = Field(description="프론트 화면 분기에 사용하는 홈 상태")
     can_upload_today: bool = Field(description="오늘 새 사진을 등록할 수 있는지 여부")
     today_photo: HomePhotoSummary | None = Field(
-        default=None, description="오늘 등록한 사진. 없으면 null"
+        default=None,
+        description="오늘 등록한 사진. 없으면 null",
     )
     searching_photos: list[HomePhotoSummary] = Field(
-        default_factory=list, description="현재 매칭을 탐색 중인 사진 목록"
+        default_factory=list,
+        description="현재 매칭을 탐색 중인 사진 목록",
     )
     new_match: HomeMatchSummary | None = Field(
-        default=None, description="새로 확인할 매칭. 없으면 null"
+        default=None,
+        description="새로 확인할 매칭. 없으면 null",
     )
 
 
@@ -129,19 +139,31 @@ class TodayPhoto(BaseModel):
     ai_title: str | None = Field(default=None, description="AI가 생성한 사진 제목")
     registered_at: datetime = Field(description="사진 등록 시각")
     search_expires_at: datetime | None = Field(
-        default=None, description="매칭 탐색 종료 예정 시각"
+        default=None,
+        description="매칭 탐색 종료 예정 시각",
     )
     remaining_days: int | None = Field(
-        default=None, description="매칭 탐색 종료까지 남은 일수", ge=0, le=7
+        default=None,
+        description="매칭 탐색 종료까지 남은 일수",
+        ge=0,
+        le=7,
     )
     rejection: PhotoRejection | None = Field(
-        default=None, description="사진이 거절된 경우의 사유"
+        default=None,
+        description="사진이 거절된 경우의 사유",
     )
-    match_id: UUID | None = Field(default=None, description="성사된 매칭 고유 ID")
+    match_id: UUID | None = Field(
+        default=None,
+        description="성사된 매칭 고유 ID",
+    )
     partner_image_url: str | None = Field(
-        default=None, description="매칭된 상대 사진 이미지 URL"
+        default=None,
+        description="매칭된 상대 사진 이미지 URL",
     )
-    matched_at: datetime | None = Field(default=None, description="매칭 성사 시각")
+    matched_at: datetime | None = Field(
+        default=None,
+        description="매칭 성사 시각",
+    )
 
 
 class TodayPhotoData(BaseModel):
@@ -160,11 +182,18 @@ class MomentPhoto(BaseModel):
     status: str = Field(description="사진 처리 상태")
     registered_at: datetime = Field(description="사진 등록 시각")
     search_expires_at: datetime | None = Field(
-        default=None, description="매칭 탐색 종료 예정 시각"
+        default=None,
+        description="매칭 탐색 종료 예정 시각",
     )
     remaining_days: int | None = Field(
-        default=None, description="매칭 탐색 종료까지 남은 일수", ge=0, le=7
+        default=None,
+        description="매칭 탐색 종료까지 남은 일수",
+        ge=0,
+        le=7,
     )
+    match_id: UUID | None = None
+    matched_at: datetime | None = None
+    hidden: bool = False
 
 
 class MomentListData(BaseModel):
@@ -189,8 +218,13 @@ class UnviewedMatch(BaseModel):
 class UnviewedMatchData(BaseModel):
     """확인하지 않은 다음 매칭 조회 결과."""
 
-    match: UnviewedMatch | None = Field(description="다음 미확인 매칭. 없으면 null")
-    unviewed_match_count: int = Field(description="전체 미확인 매칭 개수", ge=0)
+    match: UnviewedMatch | None = Field(
+        description="다음 미확인 매칭. 없으면 null"
+    )
+    unviewed_match_count: int = Field(
+        description="전체 미확인 매칭 개수",
+        ge=0,
+    )
 
 
 class ViewedMatchData(BaseModel):
@@ -198,6 +232,20 @@ class ViewedMatchData(BaseModel):
 
     match_id: UUID = Field(description="확인 처리한 매칭 고유 ID")
     viewed_at: datetime = Field(description="매칭을 확인한 시각")
+
+
+class MatchedPhoto(BaseModel):
+    id: UUID
+    image_url: str
+    registered_at: datetime
+    deleted: bool = False
+
+
+class MatchPartner(BaseModel):
+    id: UUID
+    nickname: str
+    profile_image_url: str | None = None
+
 
 class CreateReportRequest(BaseModel):
     target_type: Literal["PHOTO", "POSTCARD", "USER"]
@@ -222,10 +270,36 @@ class ReportData(BaseModel):
     status: str
     created_at: datetime
 
+
 class PublicUser(BaseModel):
     id: UUID
     nickname: str
     profile_image_url: str | None = None
+
+
+class MatchDetailData(BaseModel):
+    id: UUID
+    my_photo: MatchedPhoto
+    partner_photo: MatchedPhoto
+    partner: MatchPartner | None
+    explanation: str
+    matched_at: datetime
+    hidden: bool
+    postcard_permission: Literal[
+        "CAN_SEND",
+        "WAITING_FOR_FIRST",
+        "ALREADY_SENT",
+        "BLOCKED",
+    ]
+
+
+class MatchVisibilityRequest(BaseModel):
+    hidden: bool
+
+
+class MatchVisibilityData(BaseModel):
+    match_id: UUID
+    hidden: bool
 
 
 class BlockedUser(BaseModel):
@@ -237,4 +311,3 @@ class BlockedUserListData(BaseModel):
     items: list[BlockedUser]
     next_cursor: str | None
     has_next: bool
-

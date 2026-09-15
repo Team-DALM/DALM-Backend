@@ -11,6 +11,7 @@ from app.errors import ApiError
 from app.kakao import KakaoClient
 from app.repositories import (
     HomeRepository,
+    NotificationPreferenceRepository,
     NotificationRepository,
     PostcardRepository,
     ReportRepository,
@@ -55,6 +56,12 @@ def get_notification_repository(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> NotificationRepository:
     return NotificationRepository(session)
+
+
+def get_notification_preference_repository(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> NotificationPreferenceRepository:
+    return NotificationPreferenceRepository(session)
 
 
 def get_postcard_repository(

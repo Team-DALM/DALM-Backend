@@ -8,7 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.errors import ApiError
-from app.models import Block, Match, MatchParticipant, Notification, Photo, Postcard, Report, User
+from app.models import (
+    Block,
+    DeviceToken,
+    Match,
+    MatchParticipant,
+    Notification,
+    NotificationSetting,
+    Photo,
+    Postcard,
+    Report,
+    User,
+)
 
 
 class UserRepository:
@@ -496,6 +507,40 @@ class PostcardRepository:
         else:
             raise ApiError(404, "POSTCARD_NOT_FOUND", "엽서를 찾을 수 없습니다.")
         await self._session.commit()
+
+
+class NotificationPreferenceRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def register_device(self, user_id: UUID, token: str, platform: str) -> None:
+        item = (
+            await self._session.execute(select(DeviceToken).where(DeviceToken.token == token))
+        ).scalar_one_or_none()
+        if item is None:
+            item = DeviceToken(user_id=user_id, token=token, platform=platform)
+            self._session.add(item)
+        else:
+            item.user_id = user_id
+            item.platform = platform
+            item.last_used_at = datetime.now(UTC)
+        await self._session.commit()
+
+    async def get_settings(self, user_id: UUID) -> NotificationSetting:
+        settings = await self._session.get(NotificationSetting, user_id)
+        if settings is None:
+            settings = NotificationSetting(user_id=user_id)
+            self._session.add(settings)
+            await self._session.commit()
+            await self._session.refresh(settings)
+        return settings
+
+    async def update_settings(self, user_id: UUID, values: dict[str, bool]) -> NotificationSetting:
+        settings = await self.get_settings(user_id)
+        for name, value in values.items():
+            setattr(settings, name, value)
+        await self._session.commit()
+        return settings
 
 
 class HomeRepository:

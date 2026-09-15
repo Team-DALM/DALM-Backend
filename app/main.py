@@ -23,6 +23,7 @@ from app.database import Database
 from app.dependencies import (
     get_auth_service,
     get_home_repository,
+    get_notification_preference_repository,
     get_notification_repository,
     get_postcard_repository,
     get_report_repository,
@@ -41,6 +42,7 @@ from app.models import Notification
 from app.repositories import (
     HomeRepository,
     MatchDetailRow,
+    NotificationPreferenceRepository,
     NotificationRepository,
     PostcardRepository,
     PostcardRow,
@@ -54,6 +56,7 @@ from app.schemas import (
     BlockedUser,
     BlockedUserListData,
     CreateReportRequest,
+    DeviceTokenRequest,
     HomeData,
     HomeMatchSummary,
     HomePhotoSummary,
@@ -68,6 +71,7 @@ from app.schemas import (
     MomentPhoto,
     NotificationData,
     NotificationListData,
+    NotificationSettingsData,
     PhotoRejection,
     PostcardData,
     PostcardListData,
@@ -81,6 +85,7 @@ from app.schemas import (
     TokenPair,
     UnviewedMatch,
     UnviewedMatchData,
+    UpdateNotificationSettingsRequest,
     ViewedMatchData,
 )
 from app.token_store import (
@@ -873,6 +878,63 @@ def create_app(
                 await repository.mark_read(authenticated_user_id(claims), postcard_id)
             )
         )
+
+    def notification_settings_data(settings) -> NotificationSettingsData:
+        return NotificationSettingsData(
+            validation_enabled=settings.validation_enabled,
+            match_enabled=settings.match_enabled,
+            postcard_enabled=settings.postcard_enabled,
+            search_expired_enabled=settings.search_expired_enabled,
+            system_enabled=settings.system_enabled,
+        )
+
+    @app.post("/v1/device-tokens", status_code=status.HTTP_204_NO_CONTENT, tags=["Notifications"])
+    async def register_device_token(
+        request: DeviceTokenRequest,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[
+            NotificationPreferenceRepository,
+            Depends(get_notification_preference_repository),
+        ],
+    ) -> None:
+        token = request.token.strip()
+        if not token:
+            raise ApiError(422, "INVALID_DEVICE_TOKEN", "기기 토큰을 입력해주세요.")
+        await repository.register_device(authenticated_user_id(claims), token, request.platform)
+
+    @app.get(
+        "/v1/notification-settings",
+        response_model=ApiResponse[NotificationSettingsData],
+        tags=["Notifications"],
+    )
+    async def get_notification_settings(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[
+            NotificationPreferenceRepository,
+            Depends(get_notification_preference_repository),
+        ],
+    ) -> ApiResponse[NotificationSettingsData]:
+        settings = await repository.get_settings(authenticated_user_id(claims))
+        return ApiResponse(data=notification_settings_data(settings))
+
+    @app.patch(
+        "/v1/notification-settings",
+        response_model=ApiResponse[NotificationSettingsData],
+        tags=["Notifications"],
+    )
+    async def update_notification_settings(
+        request: UpdateNotificationSettingsRequest,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[
+            NotificationPreferenceRepository,
+            Depends(get_notification_preference_repository),
+        ],
+    ) -> ApiResponse[NotificationSettingsData]:
+        values = request.model_dump(exclude_none=True)
+        if not values:
+            raise ApiError(422, "EMPTY_NOTIFICATION_SETTINGS", "변경할 알림 설정을 입력해주세요.")
+        settings = await repository.update_settings(authenticated_user_id(claims), values)
+        return ApiResponse(data=notification_settings_data(settings))
 
     return app
 

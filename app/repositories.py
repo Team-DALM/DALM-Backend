@@ -211,6 +211,24 @@ class HomeRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_photo(self, photo_id: UUID) -> Photo | None:
+        return await self._session.get(Photo, photo_id)
+
+    async def delete_photo(self, user_id: UUID, photo_id: UUID) -> None:
+        photo = await self.get_photo(photo_id)
+        if photo is None or photo.status == "DELETED":
+            raise ApiError(404, "PHOTO_NOT_FOUND", "사진을 찾을 수 없습니다.")
+        if photo.user_id != user_id:
+            raise ApiError(403, "PHOTO_NOT_OWNED", "본인의 사진만 삭제할 수 있습니다.")
+        if photo.status not in {"SEARCHING", "EXPIRED"}:
+            code = (
+                "PHOTO_ALREADY_MATCHED" if photo.status == "MATCHED" else "PHOTO_DELETE_NOT_ALLOWED"
+            )
+            raise ApiError(409, code, "현재 상태에서는 사진을 삭제할 수 없습니다.")
+        photo.status = "DELETED"
+        photo.deleted_at = datetime.now(UTC)
+        await self._session.commit()
+
     async def get_match_card_for_photo(self, user_id: UUID, photo_id: UUID) -> MatchCardRow | None:
         mine = MatchParticipant
         partner = MatchParticipant.__table__.alias("partner")

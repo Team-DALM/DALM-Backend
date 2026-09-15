@@ -44,6 +44,8 @@ from app.schemas import (
     BlockedUserListData,
     CreateReportRequest,
     HomeData,
+    HomeMatchSummary,
+    HomePhotoSummary,
     HomeState,
     KakaoLoginRequest,
     MomentListData,
@@ -236,13 +238,72 @@ def create_app(
     )
     async def get_home(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
     ) -> ApiResponse[HomeData]:
-        del claims
+        user_id = authenticated_user_id(claims)
+        today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+        today_photo = await repository.get_today_photo(user_id, today)
+        searching = await repository.list_searching_photos(
+            user_id,
+            today=today,
+            exclude_today=True,
+            size=3,
+            cursor=None,
+        )
+        unviewed_match, _ = await repository.get_next_unviewed_match(user_id, today)
+
+        can_upload = today_photo is None or today_photo.status in {"REJECTED", "DELETED"}
+        active_today = (
+            HomePhotoSummary(
+                id=today_photo.id,
+                image_url=today_photo.image_url,
+                captured_at=today_photo.registered_at,
+                search_day=(
+                    max(1, 8 - (remaining_days(today_photo.search_expires_at) or 7))
+                    if today_photo.status == "SEARCHING"
+                    else 1
+                ),
+            )
+            if today_photo is not None and today_photo.status not in {"REJECTED", "DELETED"}
+            else None
+        )
+        searching_summaries = [
+            HomePhotoSummary(
+                id=photo.id,
+                image_url=photo.image_url,
+                captured_at=photo.registered_at,
+                search_day=max(1, 8 - (remaining_days(photo.search_expires_at) or 7)),
+            )
+            for photo in searching[:3]
+        ]
+        new_match = (
+            HomeMatchSummary(
+                id=unviewed_match.match_id,
+                photo_id=unviewed_match.my_photo_id,
+                photo_image_url=unviewed_match.partner_image_url,
+                matched_at=unviewed_match.matched_at,
+            )
+            if unviewed_match
+            else None
+        )
+        if today_photo is not None and today_photo.status == "MATCHED":
+            home_state = HomeState.TODAY_MATCHED
+        elif today_photo is not None and today_photo.status in {"VALIDATING", "SEARCHING"}:
+            home_state = HomeState.TODAY_SEARCHING
+        elif new_match is not None:
+            home_state = HomeState.PREVIOUS_MATCHED
+        elif searching_summaries:
+            home_state = HomeState.TODAY_AVAILABLE_WITH_HISTORY
+        else:
+            home_state = HomeState.EMPTY
         return ApiResponse(
             data=HomeData(
-                date=datetime.now(ZoneInfo("Asia/Seoul")).date(),
-                state=HomeState.EMPTY,
-                can_upload_today=True,
+                date=today,
+                state=home_state,
+                can_upload_today=can_upload,
+                today_photo=active_today,
+                searching_photos=searching_summaries,
+                new_match=new_match,
             )
         )
 

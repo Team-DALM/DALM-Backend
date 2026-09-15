@@ -122,3 +122,20 @@ class Report(Base):
     detail: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="PENDING")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("users.id"), index=True
+    )
+    type: Mapped[str] = mapped_column(String(30))
+    title: Mapped[str] = mapped_column(String(100))
+    message: Mapped[str] = mapped_column(String(500))
+    target_type: Mapped[str | None] = mapped_column(String(20))
+    target_id: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

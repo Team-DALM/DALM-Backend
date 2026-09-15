@@ -2,13 +2,13 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from uuid import UUID
 
-from sqlalchemy import and_, delete, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.errors import ApiError
-from app.models import Block, Match, MatchParticipant, Photo, Report, User
+from app.models import Block, Match, MatchParticipant, Notification, Photo, Report, User
 
 
 class UserRepository:
@@ -224,6 +224,100 @@ class SafetyRepository:
     async def unblock(self, blocker_id: UUID, blocked_id: UUID) -> None:
         await self._session.execute(
             delete(Block).where(Block.blocker_id == blocker_id, Block.blocked_id == blocked_id)
+        )
+        await self._session.commit()
+
+
+class NotificationRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        *,
+        user_id: UUID,
+        type: str,
+        title: str,
+        message: str,
+        target_type: str | None,
+        target_id: UUID | None,
+    ) -> Notification:
+        notification = Notification(
+            user_id=user_id,
+            type=type,
+            title=title,
+            message=message,
+            target_type=target_type,
+            target_id=target_id,
+        )
+        self._session.add(notification)
+        await self._session.commit()
+        await self._session.refresh(notification)
+        return notification
+
+    async def list(
+        self,
+        user_id: UUID,
+        *,
+        unread_only: bool,
+        size: int,
+        cursor: tuple[datetime, UUID] | None,
+    ) -> tuple[list[Notification], int]:
+        filters = [Notification.user_id == user_id, Notification.deleted_at.is_(None)]
+        if unread_only:
+            filters.append(Notification.read_at.is_(None))
+        query = (
+            select(Notification)
+            .where(*filters)
+            .order_by(Notification.created_at.desc(), Notification.id.desc())
+            .limit(size + 1)
+        )
+        if cursor:
+            created_at, notification_id = cursor
+            query = query.where(
+                (Notification.created_at < created_at)
+                | ((Notification.created_at == created_at) & (Notification.id < notification_id))
+            )
+        items = list((await self._session.execute(query)).scalars().all())
+        unread_count = int(
+            (
+                await self._session.execute(
+                    select(func.count(Notification.id)).where(
+                        Notification.user_id == user_id,
+                        Notification.deleted_at.is_(None),
+                        Notification.read_at.is_(None),
+                    )
+                )
+            ).scalar_one()
+        )
+        return items, unread_count
+
+    async def mark_read(self, user_id: UUID, notification_id: UUID) -> Notification:
+        notification = (
+            await self._session.execute(
+                select(Notification).where(
+                    Notification.id == notification_id,
+                    Notification.user_id == user_id,
+                    Notification.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if notification is None:
+            raise ApiError(404, "NOTIFICATION_NOT_FOUND", "알림을 찾을 수 없습니다.")
+        if notification.read_at is None:
+            notification.read_at = datetime.now(UTC)
+            await self._session.commit()
+        return notification
+
+    async def mark_all_read(self, user_id: UUID) -> None:
+        await self._session.execute(
+            update(Notification)
+            .where(
+                Notification.user_id == user_id,
+                Notification.deleted_at.is_(None),
+                Notification.read_at.is_(None),
+            )
+            .values(read_at=datetime.now(UTC))
         )
         await self._session.commit()
 

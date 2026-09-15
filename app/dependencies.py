@@ -12,6 +12,7 @@ from app.kakao import KakaoClient
 from app.repositories import (
     HomeRepository,
     NotificationRepository,
+    PostcardRepository,
     ReportRepository,
     SafetyRepository,
     UserRepository,
@@ -54,6 +55,12 @@ def get_notification_repository(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> NotificationRepository:
     return NotificationRepository(session)
+
+
+def get_postcard_repository(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> PostcardRepository:
+    return PostcardRepository(session)
 
 
 def get_report_repository(

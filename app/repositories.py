@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.errors import ApiError
-from app.models import Block, Match, MatchParticipant, Notification, Photo, Report, User
+from app.models import Block, Match, MatchParticipant, Notification, Photo, Postcard, Report, User
 
 
 class UserRepository:
@@ -319,6 +319,182 @@ class NotificationRepository:
             )
             .values(read_at=datetime.now(UTC))
         )
+        await self._session.commit()
+
+
+@dataclass(frozen=True)
+class PostcardRow:
+    id: UUID
+    match_id: UUID
+    sender_id: UUID
+    sender_nickname: str
+    receiver_id: UUID
+    receiver_nickname: str
+    content: str
+    read_at: datetime | None
+    sent_at: datetime
+    moment_thumbnail_url: str
+
+
+class PostcardRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    def _row_query(self, user_id: UUID):
+        sender = aliased(User)
+        receiver = aliased(User)
+        viewer_participant = aliased(MatchParticipant)
+        viewer_photo = aliased(Photo)
+        return (
+            select(
+                Postcard.id,
+                Postcard.match_id,
+                Postcard.sender_id,
+                sender.nickname,
+                Postcard.receiver_id,
+                receiver.nickname,
+                Postcard.content,
+                Postcard.read_at,
+                Postcard.sent_at,
+                viewer_photo.image_url,
+            )
+            .join(sender, sender.id == Postcard.sender_id)
+            .join(receiver, receiver.id == Postcard.receiver_id)
+            .join(
+                viewer_participant,
+                and_(
+                    viewer_participant.match_id == Postcard.match_id,
+                    viewer_participant.user_id == user_id,
+                ),
+            )
+            .join(viewer_photo, viewer_photo.id == viewer_participant.photo_id)
+        )
+
+    async def send(
+        self, user_id: UUID, match_id: UUID, content: str, idempotency_key: UUID | None
+    ) -> PostcardRow:
+        if idempotency_key is not None:
+            existing_id = (
+                await self._session.execute(
+                    select(Postcard.id).where(
+                        Postcard.sender_id == user_id,
+                        Postcard.idempotency_key == idempotency_key,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing_id is not None:
+                return await self.get(user_id, existing_id)
+        participants = list(
+            (
+                await self._session.execute(
+                    select(MatchParticipant, Photo)
+                    .join(Photo, Photo.id == MatchParticipant.photo_id)
+                    .where(MatchParticipant.match_id == match_id)
+                    .order_by(Photo.registered_at.asc(), Photo.id.asc())
+                    .with_for_update()
+                )
+            ).all()
+        )
+        if len(participants) != 2 or user_id not in {row[0].user_id for row in participants}:
+            raise ApiError(404, "MATCH_NOT_FOUND", "매칭을 찾을 수 없습니다.")
+        first_id = participants[0][0].user_id
+        receiver_id = next(row[0].user_id for row in participants if row[0].user_id != user_id)
+        blocked = (
+            await self._session.execute(
+                select(Block.blocker_id).where(
+                    or_(
+                        and_(Block.blocker_id == user_id, Block.blocked_id == receiver_id),
+                        and_(Block.blocker_id == receiver_id, Block.blocked_id == user_id),
+                    )
+                )
+            )
+        ).first()
+        if blocked:
+            raise ApiError(409, "USER_BLOCKED", "차단 관계에서는 엽서를 보낼 수 없습니다.")
+        if user_id != first_id:
+            first_sent = (
+                await self._session.execute(
+                    select(Postcard.id).where(
+                        Postcard.match_id == match_id, Postcard.sender_id == first_id
+                    )
+                )
+            ).scalar_one_or_none()
+            if first_sent is None:
+                raise ApiError(409, "POSTCARD_ORDER_NOT_ALLOWED", "첫 엽서를 기다리고 있습니다.")
+        postcard = Postcard(
+            match_id=match_id,
+            sender_id=user_id,
+            receiver_id=receiver_id,
+            content=content,
+            idempotency_key=idempotency_key,
+        )
+        self._session.add(postcard)
+        try:
+            await self._session.commit()
+        except IntegrityError as exc:
+            await self._session.rollback()
+            raise ApiError(409, "POSTCARD_ALREADY_SENT", "이미 엽서를 보냈습니다.") from exc
+        return await self.get(user_id, postcard.id)
+
+    async def list(
+        self, user_id: UUID, *, mailbox: str, size: int, cursor: tuple[datetime, UUID] | None
+    ) -> list[PostcardRow]:
+        owner = Postcard.receiver_id if mailbox == "received" else Postcard.sender_id
+        deleted = (
+            Postcard.receiver_deleted_at if mailbox == "received" else Postcard.sender_deleted_at
+        )
+        query = (
+            self._row_query(user_id)
+            .where(owner == user_id, deleted.is_(None))
+            .order_by(Postcard.sent_at.desc(), Postcard.id.desc())
+            .limit(size + 1)
+        )
+        if cursor:
+            sent_at, postcard_id = cursor
+            query = query.where(
+                (Postcard.sent_at < sent_at)
+                | ((Postcard.sent_at == sent_at) & (Postcard.id < postcard_id))
+            )
+        return [PostcardRow(*row) for row in (await self._session.execute(query)).all()]
+
+    async def get(self, user_id: UUID, postcard_id: UUID) -> PostcardRow:
+        row = (
+            await self._session.execute(
+                self._row_query(user_id).where(
+                    Postcard.id == postcard_id,
+                    or_(
+                        and_(Postcard.sender_id == user_id, Postcard.sender_deleted_at.is_(None)),
+                        and_(
+                            Postcard.receiver_id == user_id, Postcard.receiver_deleted_at.is_(None)
+                        ),
+                    ),
+                )
+            )
+        ).first()
+        if row is None:
+            raise ApiError(404, "POSTCARD_NOT_FOUND", "엽서를 찾을 수 없습니다.")
+        return PostcardRow(*row)
+
+    async def mark_read(self, user_id: UUID, postcard_id: UUID) -> PostcardRow:
+        postcard = await self._session.get(Postcard, postcard_id)
+        if postcard is None or postcard.receiver_id != user_id or postcard.receiver_deleted_at:
+            raise ApiError(404, "POSTCARD_NOT_FOUND", "엽서를 찾을 수 없습니다.")
+        if postcard.read_at is None:
+            postcard.read_at = datetime.now(UTC)
+            await self._session.commit()
+        return await self.get(user_id, postcard_id)
+
+    async def delete(self, user_id: UUID, postcard_id: UUID) -> None:
+        postcard = await self._session.get(Postcard, postcard_id)
+        if postcard is None:
+            raise ApiError(404, "POSTCARD_NOT_FOUND", "엽서를 찾을 수 없습니다.")
+        now = datetime.now(UTC)
+        if postcard.sender_id == user_id and postcard.sender_deleted_at is None:
+            postcard.sender_deleted_at = now
+        elif postcard.receiver_id == user_id and postcard.receiver_deleted_at is None:
+            postcard.receiver_deleted_at = now
+        else:
+            raise ApiError(404, "POSTCARD_NOT_FOUND", "엽서를 찾을 수 없습니다.")
         await self._session.commit()
 
 

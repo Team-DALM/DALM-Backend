@@ -139,3 +139,22 @@ class Notification(Base):
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Postcard(Base):
+    __tablename__ = "postcards"
+    __table_args__ = (
+        UniqueConstraint("match_id", "sender_id"),
+        UniqueConstraint("sender_id", "idempotency_key"),
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    match_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("matches.id"))
+    sender_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("users.id"))
+    receiver_id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), ForeignKey("users.id"))
+    content: Mapped[str] = mapped_column(String(200))
+    idempotency_key: Mapped[UUID | None] = mapped_column(PostgreSQLUUID(as_uuid=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    sender_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    receiver_deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

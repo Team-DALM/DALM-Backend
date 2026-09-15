@@ -329,6 +329,13 @@ ruff check app tests alembic
 pytest -q
 ```
 
+탐색 기간이 지난 사진은 운영 스케줄러에서 다음 일회성 작업을 주기적으로 실행해
+`SEARCHING`에서 `EXPIRED`로 변경합니다.
+
+```bash
+python -m scripts.expire_searching_photos
+```
+
 현재 인증 테스트는 다음 동작을 검증합니다.
 
 - 정상 Refresh Token으로 새 토큰 쌍 발급

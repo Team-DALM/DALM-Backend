@@ -10,6 +10,7 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, Query, Response, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,17 +23,29 @@ from app.database import Database
 from app.dependencies import (
     get_auth_service,
     get_home_repository,
+    get_report_repository,
+    get_safety_repository,
     get_token_service,
     require_access_token,
 )
-from app.errors import ApiError, api_error_handler, infrastructure_error_handler
+from app.errors import (
+    ApiError,
+    api_error_handler,
+    infrastructure_error_handler,
+    request_validation_error_handler,
+)
 from app.kakao import KakaoClient
-from app.repositories import HomeRepository, MatchDetailRow
+from app.repositories import HomeRepository, MatchDetailRow, ReportRepository, SafetyRepository
 from app.schemas import (
     ApiResponse,
     AppleLoginRequest,
     AuthData,
+    BlockedUser,
+    BlockedUserListData,
+    CreateReportRequest,
     HomeData,
+    HomeMatchSummary,
+    HomePhotoSummary,
     HomeState,
     KakaoLoginRequest,
     MatchDetailData,
@@ -43,7 +56,9 @@ from app.schemas import (
     MomentListData,
     MomentPhoto,
     PhotoRejection,
+    PublicUser,
     RefreshTokenRequest,
+    ReportData,
     TodayPhoto,
     TodayPhotoData,
     TokenPair,
@@ -132,6 +147,7 @@ def create_app(
     app.state.kakao_client = resolved_kakao_client
     app.state.apple_client = resolved_apple_client
     app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RequestValidationError, request_validation_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RedisError, infrastructure_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(SQLAlchemyError, infrastructure_error_handler)  # type: ignore[arg-type]
 
@@ -227,13 +243,72 @@ def create_app(
     )
     async def get_home(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
     ) -> ApiResponse[HomeData]:
-        del claims
+        user_id = authenticated_user_id(claims)
+        today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+        today_photo = await repository.get_today_photo(user_id, today)
+        searching = await repository.list_searching_photos(
+            user_id,
+            today=today,
+            exclude_today=True,
+            size=3,
+            cursor=None,
+        )
+        unviewed_match, _ = await repository.get_next_unviewed_match(user_id, today)
+
+        can_upload = today_photo is None or today_photo.status in {"REJECTED", "DELETED"}
+        active_today = (
+            HomePhotoSummary(
+                id=today_photo.id,
+                image_url=today_photo.image_url,
+                captured_at=today_photo.registered_at,
+                search_day=(
+                    max(1, 8 - (remaining_days(today_photo.search_expires_at) or 7))
+                    if today_photo.status == "SEARCHING"
+                    else 1
+                ),
+            )
+            if today_photo is not None and today_photo.status not in {"REJECTED", "DELETED"}
+            else None
+        )
+        searching_summaries = [
+            HomePhotoSummary(
+                id=photo.id,
+                image_url=photo.image_url,
+                captured_at=photo.registered_at,
+                search_day=max(1, 8 - (remaining_days(photo.search_expires_at) or 7)),
+            )
+            for photo in searching[:3]
+        ]
+        new_match = (
+            HomeMatchSummary(
+                id=unviewed_match.match_id,
+                photo_id=unviewed_match.my_photo_id,
+                photo_image_url=unviewed_match.partner_image_url,
+                matched_at=unviewed_match.matched_at,
+            )
+            if unviewed_match
+            else None
+        )
+        if today_photo is not None and today_photo.status == "MATCHED":
+            home_state = HomeState.TODAY_MATCHED
+        elif today_photo is not None and today_photo.status in {"VALIDATING", "SEARCHING"}:
+            home_state = HomeState.TODAY_SEARCHING
+        elif new_match is not None:
+            home_state = HomeState.PREVIOUS_MATCHED
+        elif searching_summaries:
+            home_state = HomeState.TODAY_AVAILABLE_WITH_HISTORY
+        else:
+            home_state = HomeState.EMPTY
         return ApiResponse(
             data=HomeData(
-                date=datetime.now(ZoneInfo("Asia/Seoul")).date(),
-                state=HomeState.EMPTY,
-                can_upload_today=True,
+                date=today,
+                state=home_state,
+                can_upload_today=can_upload,
+                today_photo=active_today,
+                searching_photos=searching_summaries,
+                new_match=new_match,
             )
         )
 
@@ -314,6 +389,62 @@ def create_app(
                 ),
             )
         )
+
+    @app.get(
+        "/v1/photos/{photo_id}",
+        response_model=ApiResponse[TodayPhoto],
+        tags=["Photos"],
+    )
+    async def get_photo(
+        photo_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+    ) -> ApiResponse[TodayPhoto]:
+        user_id = authenticated_user_id(claims)
+        photo = await repository.get_photo(photo_id)
+        if photo is None or photo.status == "DELETED":
+            raise ApiError(404, "PHOTO_NOT_FOUND", "사진을 찾을 수 없습니다.")
+        if photo.user_id != user_id:
+            raise ApiError(403, "PHOTO_NOT_OWNED", "본인의 사진만 조회할 수 있습니다.")
+        match = (
+            await repository.get_match_card_for_photo(user_id, photo.id)
+            if photo.status == "MATCHED"
+            else None
+        )
+        rejection = (
+            PhotoRejection(code=photo.rejection_code, message=photo.rejection_message)
+            if photo.status == "REJECTED" and photo.rejection_code and photo.rejection_message
+            else None
+        )
+        return ApiResponse(
+            data=TodayPhoto(
+                id=photo.id,
+                status=photo.status,
+                image_url=photo.image_url,
+                ai_title=photo.ai_title,
+                registered_at=photo.registered_at,
+                search_expires_at=photo.search_expires_at,
+                remaining_days=(
+                    remaining_days(photo.search_expires_at) if photo.status == "SEARCHING" else None
+                ),
+                rejection=rejection,
+                match_id=match.match_id if match else None,
+                partner_image_url=match.partner_image_url if match else None,
+                matched_at=match.matched_at if match else None,
+            )
+        )
+
+    @app.delete(
+        "/v1/photos/{photo_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["Photos"],
+    )
+    async def delete_photo(
+        photo_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+    ) -> None:
+        await repository.delete_photo(authenticated_user_id(claims), photo_id)
 
     @app.get(
         "/v1/moments",
@@ -461,6 +592,92 @@ def create_app(
             raise ApiError(404, "MATCH_NOT_FOUND", "매칭을 찾을 수 없습니다.")
         return ApiResponse(data=MatchVisibilityData(match_id=match_id, hidden=hidden))
 
+    @app.post(
+        "/v1/reports",
+        response_model=ApiResponse[ReportData],
+        status_code=status.HTTP_201_CREATED,
+        tags=["Safety"],
+    )
+    async def create_report(
+        request: CreateReportRequest,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[ReportRepository, Depends(get_report_repository)],
+    ) -> ApiResponse[ReportData]:
+        report = await repository.create(
+            reporter_id=authenticated_user_id(claims),
+            target_type=request.target_type,
+            target_id=request.target_id,
+            reason_code=request.reason_code,
+            detail=request.detail.strip() if request.detail else None,
+        )
+        return ApiResponse(
+            data=ReportData(
+                id=report.id,
+                target_type=report.target_type,
+                target_id=report.target_id,
+                reason_code=report.reason_code,
+                status=report.status,
+                created_at=report.created_at,
+            )
+        )
+
+    @app.get(
+        "/v1/blocks",
+        response_model=ApiResponse[BlockedUserListData],
+        tags=["Safety"],
+    )
+    async def list_blocked_users(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[SafetyRepository, Depends(get_safety_repository)],
+        size: Annotated[int, Query(ge=1, le=50)] = 20,
+        cursor: str | None = None,
+    ) -> ApiResponse[BlockedUserListData]:
+        rows = await repository.list_blocks(
+            authenticated_user_id(claims), size=size, cursor=decode_cursor(cursor)
+        )
+        has_next = len(rows) > size
+        page = rows[:size]
+        next_cursor = (
+            encode_cursor(page[-1].blocked_at, page[-1].user_id)
+            if has_next and page
+            else None
+        )
+        return ApiResponse(
+            data=BlockedUserListData(
+                items=[
+                    BlockedUser(
+                        user=PublicUser(
+                            id=row.user_id,
+                            nickname=row.nickname,
+                            profile_image_url=row.profile_image_url,
+                        ),
+                        blocked_at=row.blocked_at,
+                    )
+                    for row in page
+                ],
+                next_cursor=next_cursor,
+                has_next=has_next,
+            )
+        )
+
+    @app.post("/v1/blocks/{user_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Safety"])
+    async def block_user(
+        user_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[SafetyRepository, Depends(get_safety_repository)],
+    ) -> None:
+        await repository.block(authenticated_user_id(claims), user_id)
+
+    @app.delete(
+        "/v1/blocks/{user_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Safety"]
+    )
+    async def unblock_user(
+        user_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[SafetyRepository, Depends(get_safety_repository)],
+    ) -> None:
+        await repository.unblock(authenticated_user_id(claims), user_id)
+        
     return app
 
 

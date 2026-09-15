@@ -33,6 +33,8 @@ class FakeHomeRepository:
         self.list_args = None
         self.match_detail = None
         self.visibility = None
+        self.photos = {}
+        self.deleted_photo = None
 
     async def get_today_photo(self, user_id, today):
         assert user_id == USER_ID
@@ -41,6 +43,18 @@ class FakeHomeRepository:
 
     async def get_match_card_for_photo(self, user_id, photo_id):
         return self.match_card
+
+    async def get_photo(self, photo_id):
+        return self.photos.get(photo_id)
+
+    async def delete_photo(self, user_id, photo_id):
+        assert user_id == USER_ID
+        item = self.photos.get(photo_id)
+        if item is None:
+            from app.errors import ApiError
+
+            raise ApiError(404, "PHOTO_NOT_FOUND", "사진을 찾을 수 없습니다.")
+        self.deleted_photo = photo_id
 
     async def list_searching_photos(self, user_id, **kwargs):
         assert user_id == USER_ID
@@ -166,6 +180,42 @@ def test_today_matched_photo_contains_partner_data() -> None:
     assert result["match_id"] == str(repository.match_card.match_id)
     assert result["partner_image_url"] == "https://example.com/partner.jpg"
     assert result["matched_at"] is not None
+
+
+def test_get_photo_checks_owner_and_returns_detail() -> None:
+    repository = FakeHomeRepository()
+    item = photo(user_id=USER_ID)
+    repository.photos[item.id] = item
+    client, token = make_client(repository)
+
+    response = client.get(f"/v1/photos/{item.id}", headers=auth(token))
+
+    assert response.status_code == 200
+    assert response.json()["data"]["id"] == str(item.id)
+
+
+def test_get_someone_elses_photo_returns_403() -> None:
+    repository = FakeHomeRepository()
+    item = photo(user_id=uuid4())
+    repository.photos[item.id] = item
+    client, token = make_client(repository)
+
+    response = client.get(f"/v1/photos/{item.id}", headers=auth(token))
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "PHOTO_NOT_OWNED"
+
+
+def test_delete_photo_returns_204() -> None:
+    repository = FakeHomeRepository()
+    item = photo(user_id=USER_ID)
+    repository.photos[item.id] = item
+    client, token = make_client(repository)
+
+    response = client.delete(f"/v1/photos/{item.id}", headers=auth(token))
+
+    assert response.status_code == 204
+    assert repository.deleted_photo == item.id
 
 
 def test_searching_moments_exclude_today_and_paginate() -> None:

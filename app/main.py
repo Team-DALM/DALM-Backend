@@ -9,7 +9,7 @@ from typing import Annotated, Protocol
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, Header, Query, Response, status
+from fastapi import Depends, FastAPI, File, Form, Header, Query, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
@@ -29,6 +29,7 @@ from app.dependencies import (
     get_report_repository,
     get_safety_repository,
     get_token_service,
+    get_user_repository,
     require_access_token,
 )
 from app.errors import (
@@ -48,6 +49,7 @@ from app.repositories import (
     PostcardRow,
     ReportRepository,
     SafetyRepository,
+    UserRepository,
 )
 from app.schemas import (
     ApiResponse,
@@ -86,7 +88,10 @@ from app.schemas import (
     UnviewedMatch,
     UnviewedMatchData,
     UpdateNotificationSettingsRequest,
+    UserProfile,
+    UserStats,
     ViewedMatchData,
+    WithdrawRequest,
 )
 from app.token_store import (
     InMemoryRefreshTokenStore,
@@ -255,6 +260,133 @@ def create_app(
         service: Annotated[TokenService, Depends(get_token_service)],
     ) -> None:
         await service.revoke(request.refresh_token, claims.subject)
+
+    def normalized_nickname(value: str) -> str:
+        nickname = value.strip()
+        if not 2 <= len(nickname) <= 12:
+            raise ApiError(422, "INVALID_NICKNAME", "닉네임은 2~12자로 입력해주세요.")
+        return nickname
+
+    def normalized_bio(value: str | None) -> str | None:
+        if value is None:
+            return None
+        bio = value.strip()
+        if len(bio) > 100:
+            raise ApiError(422, "INVALID_BIO", "한 줄 소개는 100자 이하로 입력해주세요.")
+        return bio or None
+
+    async def user_profile(repository: UserRepository, user) -> UserProfile:
+        photo_count, match_count, received_postcard_count = await repository.get_stats(user.id)
+        return UserProfile(
+            id=user.id,
+            nickname=user.nickname,
+            profile_image_url=None,
+            bio=user.bio,
+            status=user.status,
+            stats=UserStats(
+                photo_count=photo_count,
+                match_count=match_count,
+                received_postcard_count=received_postcard_count,
+            ),
+            created_at=user.created_at,
+        )
+
+    @app.post(
+        "/v1/users/onboarding",
+        response_model=ApiResponse[UserProfile],
+        status_code=status.HTTP_201_CREATED,
+        tags=["Users"],
+    )
+    async def complete_onboarding(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[UserRepository, Depends(get_user_repository)],
+        nickname: Annotated[str, Form()],
+        service_terms_agreed: Annotated[bool, Form()],
+        privacy_policy_agreed: Annotated[bool, Form()],
+        age_14_confirmed: Annotated[bool, Form()],
+        profile_image: Annotated[UploadFile | None, File()] = None,
+        bio: Annotated[str | None, Form()] = None,
+        marketing_agreed: Annotated[bool, Form()] = False,
+        service_terms_version: Annotated[str, Form()] = "1.0",
+        privacy_policy_version: Annotated[str, Form()] = "1.0",
+    ) -> ApiResponse[UserProfile]:
+        if profile_image is not None:
+            raise ApiError(
+                503,
+                "PROFILE_IMAGE_STORAGE_NOT_CONFIGURED",
+                "프로필 이미지 저장소가 아직 준비되지 않았습니다.",
+            )
+        if not (service_terms_agreed and privacy_policy_agreed and age_14_confirmed):
+            raise ApiError(422, "REQUIRED_TERMS_NOT_AGREED", "필수 약관에 동의해야 합니다.")
+        user = await repository.complete_onboarding(
+            authenticated_user_id(claims),
+            nickname=normalized_nickname(nickname),
+            bio=normalized_bio(bio),
+            marketing_agreed=marketing_agreed,
+            service_terms_version=service_terms_version,
+            privacy_policy_version=privacy_policy_version,
+        )
+        return ApiResponse(data=await user_profile(repository, user))
+
+    @app.get(
+        "/v1/users/me",
+        response_model=ApiResponse[UserProfile],
+        tags=["Users"],
+    )
+    async def get_my_profile(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[UserRepository, Depends(get_user_repository)],
+    ) -> ApiResponse[UserProfile]:
+        user = await repository.get_by_id(authenticated_user_id(claims))
+        if user is None or user.status == "WITHDRAWN":
+            raise ApiError(404, "USER_NOT_FOUND", "사용자를 찾을 수 없습니다.")
+        if user.onboarding_required:
+            raise ApiError(409, "ONBOARDING_REQUIRED", "온보딩을 먼저 완료해주세요.")
+        return ApiResponse(data=await user_profile(repository, user))
+
+    @app.patch(
+        "/v1/users/me",
+        response_model=ApiResponse[UserProfile],
+        tags=["Users"],
+    )
+    async def update_my_profile(
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[UserRepository, Depends(get_user_repository)],
+        nickname: Annotated[str | None, Form()] = None,
+        bio: Annotated[str | None, Form()] = None,
+        profile_image: Annotated[UploadFile | None, File()] = None,
+        remove_profile_image: Annotated[bool, Form()] = False,
+    ) -> ApiResponse[UserProfile]:
+        if profile_image is not None or remove_profile_image:
+            raise ApiError(
+                503,
+                "PROFILE_IMAGE_STORAGE_NOT_CONFIGURED",
+                "프로필 이미지 저장소가 아직 준비되지 않았습니다.",
+            )
+        if nickname is None and bio is None:
+            raise ApiError(422, "EMPTY_PROFILE_UPDATE", "수정할 프로필 정보를 입력해주세요.")
+        user = await repository.update_profile(
+            authenticated_user_id(claims),
+            nickname=normalized_nickname(nickname) if nickname is not None else None,
+            bio=normalized_bio(bio),
+            update_bio=bio is not None,
+        )
+        return ApiResponse(data=await user_profile(repository, user))
+
+    @app.delete(
+        "/v1/users/me",
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["Users"],
+    )
+    async def withdraw_my_account(
+        request: WithdrawRequest,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[UserRepository, Depends(get_user_repository)],
+        token_service: Annotated[TokenService, Depends(get_token_service)],
+    ) -> None:
+        del request
+        await repository.withdraw(authenticated_user_id(claims))
+        await token_service.revoke_all(claims.subject)
 
     @app.get(
         "/v1/home",

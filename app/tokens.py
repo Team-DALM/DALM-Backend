@@ -125,3 +125,6 @@ class TokenService:
             raise AUTHENTICATION_FAILED
         if not await self._store.revoke(claims.token_id, claims.subject):
             raise AUTHENTICATION_FAILED
+
+    async def revoke_all(self, subject: str) -> int:
+        return await self._store.revoke_all(subject)

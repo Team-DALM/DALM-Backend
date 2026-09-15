@@ -1,3 +1,4 @@
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi.testclient import TestClient
@@ -34,8 +35,6 @@ def make_client(settings: Settings = TEST_SETTINGS) -> TestClient:
 
 
 def issue_pair(client: TestClient, subject: str = "user-1"):
-    import asyncio
-
     return asyncio.run(client.app.state.token_service.issue_pair(subject))
 
 
@@ -213,3 +212,23 @@ def test_concurrent_refresh_allows_only_one_rotation() -> None:
 
     assert statuses.count(200) == 1
     assert statuses.count(401) == 3
+
+
+def test_revoke_all_invalidates_every_refresh_token_for_subject() -> None:
+    client = make_client()
+    first = issue_pair(client, "same-user")
+    second = issue_pair(client, "same-user")
+    other = issue_pair(client, "other-user")
+
+    revoked = asyncio.run(client.app.state.token_service.revoke_all("same-user"))
+
+    assert revoked == 2
+    assert client.post(
+        "/v1/auth/refresh", json={"refresh_token": first.refresh_token}
+    ).status_code == 401
+    assert client.post(
+        "/v1/auth/refresh", json={"refresh_token": second.refresh_token}
+    ).status_code == 401
+    assert client.post(
+        "/v1/auth/refresh", json={"refresh_token": other.refresh_token}
+    ).status_code == 200

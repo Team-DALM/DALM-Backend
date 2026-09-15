@@ -2,7 +2,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Date, DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +26,9 @@ class User(Base):
     kakao_id: Mapped[str | None] = mapped_column(String(100), index=True, nullable=True)
     apple_id: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     nickname: Mapped[str | None] = mapped_column(String(12), unique=True, nullable=True)
+    profile_image_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    bio: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    marketing_agreed: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(20), default=UserStatus.ACTIVE.value)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -41,6 +44,22 @@ class User(Base):
     @property
     def onboarding_required(self) -> bool:
         return self.nickname is None
+
+
+class UserTerm(Base):
+    __tablename__ = "user_terms"
+    __table_args__ = (UniqueConstraint("user_id", "term_type", "term_version"),)
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("users.id"), index=True
+    )
+    term_type: Mapped[str] = mapped_column(String(30))
+    term_version: Mapped[str] = mapped_column(String(20))
+    agreed: Mapped[bool] = mapped_column(Boolean)
+    agreed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class PhotoStatus(StrEnum):

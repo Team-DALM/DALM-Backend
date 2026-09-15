@@ -70,6 +70,26 @@ class AuthData(BaseModel):
     user: AuthUser = Field(description="로그인한 사용자 정보")
 
 
+class UserStats(BaseModel):
+    photo_count: int = Field(ge=0)
+    match_count: int = Field(ge=0)
+    received_postcard_count: int = Field(default=0, ge=0)
+
+
+class UserProfile(BaseModel):
+    id: UUID
+    nickname: str
+    profile_image_url: str | None = None
+    bio: str | None = None
+    status: str
+    stats: UserStats
+    created_at: datetime
+
+
+class WithdrawRequest(BaseModel):
+    confirmation: Literal[True]
+
+
 class HomeState(StrEnum):
     """홈 화면 표시 상태."""
 

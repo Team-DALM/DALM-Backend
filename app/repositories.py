@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import and_, delete, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.errors import ApiError
 from app.models import Block, Match, MatchParticipant, Photo, Report, User
@@ -59,6 +60,82 @@ class MatchCardRow:
     partner_image_url: str
     ai_title: str | None
     matched_at: datetime
+
+
+class ReportRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        *,
+        reporter_id: UUID,
+        target_type: str,
+        target_id: UUID,
+        reason_code: str,
+        detail: str | None,
+    ) -> Report:
+        if target_type == "USER":
+            if target_id == reporter_id:
+                raise ApiError(422, "CANNOT_REPORT_SELF", "본인은 신고할 수 없습니다.")
+            exists_target = (
+                await self._session.execute(
+                    select(User.id).where(User.id == target_id, User.status != "WITHDRAWN")
+                )
+            ).scalar_one_or_none()
+        elif target_type == "PHOTO":
+            exists_target = (
+                await self._session.execute(
+                    select(Photo.id).where(Photo.id == target_id, Photo.deleted_at.is_(None))
+                )
+            ).scalar_one_or_none()
+        else:
+            raise ApiError(
+                422,
+                "POSTCARD_REPORT_NOT_AVAILABLE",
+                "엽서 기능이 준비된 후 엽서를 신고할 수 있습니다.",
+            )
+        if exists_target is None:
+            raise ApiError(404, "REPORT_TARGET_NOT_FOUND", "신고 대상을 찾을 수 없습니다.")
+
+        report = Report(
+            reporter_id=reporter_id,
+            target_type=target_type,
+            target_id=target_id,
+            reason_code=reason_code,
+            detail=detail,
+            status="PENDING",
+        )
+        self._session.add(report)
+        if target_type == "USER":
+            already_blocked = await self._session.get(Block, (reporter_id, target_id))
+            if already_blocked is None:
+                self._session.add(Block(blocker_id=reporter_id, blocked_id=target_id))
+        else:
+            target_participant = aliased(MatchParticipant)
+            participant = (
+                await self._session.execute(
+                    select(MatchParticipant)
+                    .join(
+                        target_participant,
+                        target_participant.match_id == MatchParticipant.match_id,
+                    )
+                    .where(
+                        MatchParticipant.user_id == reporter_id,
+                        target_participant.photo_id == target_id,
+                    )
+                )
+            ).scalars().first()
+            if participant is not None:
+                participant.hidden_at = datetime.now(UTC)
+
+        try:
+            await self._session.commit()
+        except IntegrityError as exc:
+            await self._session.rollback()
+            raise ApiError(409, "REPORT_ALREADY_EXISTS", "이미 접수한 신고입니다.") from exc
+        await self._session.refresh(report)
+        return report
 
 
 @dataclass(frozen=True)

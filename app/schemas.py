@@ -27,7 +27,13 @@ class KakaoLoginRequest(BaseModel):
 
 
 class AppleLoginRequest(BaseModel):
-    identity_token: str = Field(min_length=1)
+    """Apple 로그인 요청."""
+
+    identity_token: str = Field(
+        min_length=1,
+        description="Apple 로그인에서 발급받은 Identity Token",
+        examples=["apple-identity-token"],
+    )
 
 
 class RefreshTokenRequest(BaseModel):
@@ -71,23 +77,29 @@ class AuthData(BaseModel):
 
 
 class UserStats(BaseModel):
-    photo_count: int = Field(ge=0)
-    match_count: int = Field(ge=0)
-    received_postcard_count: int = Field(default=0, ge=0)
+    """사용자 활동 통계."""
+
+    photo_count: int = Field(ge=0, description="등록한 전체 사진 수")
+    match_count: int = Field(ge=0, description="성사된 전체 매칭 수")
+    received_postcard_count: int = Field(default=0, ge=0, description="받은 전체 엽서 수")
 
 
 class UserProfile(BaseModel):
-    id: UUID
-    nickname: str
-    profile_image_url: str | None = None
-    bio: str | None = None
-    status: str
-    stats: UserStats
-    created_at: datetime
+    """사용자 프로필."""
+
+    id: UUID = Field(description="사용자 고유 ID")
+    nickname: str = Field(description="사용자 닉네임")
+    profile_image_url: str | None = Field(default=None, description="프로필 이미지 URL")
+    bio: str | None = Field(default=None, description="사용자 한 줄 소개")
+    status: str = Field(description="사용자 계정 상태")
+    stats: UserStats = Field(description="사용자 활동 통계")
+    created_at: datetime = Field(description="사용자 가입 시각")
 
 
 class WithdrawRequest(BaseModel):
-    confirmation: Literal[True]
+    """회원 탈퇴 확인 요청."""
+
+    confirmation: Literal[True] = Field(description="회원 탈퇴 확인 값. 반드시 true")
 
 
 class HomeState(StrEnum):
@@ -211,9 +223,9 @@ class MomentPhoto(BaseModel):
         ge=0,
         le=7,
     )
-    match_id: UUID | None = None
-    matched_at: datetime | None = None
-    hidden: bool = False
+    match_id: UUID | None = Field(default=None, description="성사된 매칭 고유 ID")
+    matched_at: datetime | None = Field(default=None, description="매칭 성사 시각")
+    hidden: bool = Field(default=False, description="내 순간 목록에서 숨김 처리되었는지 여부")
 
 
 class MomentListData(BaseModel):
@@ -255,21 +267,29 @@ class ViewedMatchData(BaseModel):
 
 
 class MatchedPhoto(BaseModel):
-    id: UUID
-    image_url: str
-    registered_at: datetime
-    deleted: bool = False
+    """매칭에 참여한 사진."""
+
+    id: UUID = Field(description="사진 고유 ID")
+    image_url: str = Field(description="사진 이미지 URL")
+    registered_at: datetime = Field(description="사진 등록 시각")
+    deleted: bool = Field(default=False, description="사진 삭제 여부")
 
 
 class MatchPartner(BaseModel):
-    id: UUID
-    nickname: str
-    profile_image_url: str | None = None
+    """매칭 상대 사용자 정보."""
+
+    id: UUID = Field(description="상대 사용자 고유 ID")
+    nickname: str = Field(description="상대 사용자 닉네임")
+    profile_image_url: str | None = Field(default=None, description="상대 프로필 이미지 URL")
 
 
 class CreateReportRequest(BaseModel):
-    target_type: Literal["PHOTO", "POSTCARD", "USER"]
-    target_id: UUID
+    """콘텐츠 또는 사용자 신고 요청."""
+
+    target_type: Literal["PHOTO", "POSTCARD", "USER"] = Field(
+        description="신고 대상 유형"
+    )
+    target_id: UUID = Field(description="신고 대상 고유 ID")
     reason_code: Literal[
         "INAPPROPRIATE_PHOTO",
         "SEXUAL_OR_VIOLENT",
@@ -278,123 +298,166 @@ class CreateReportRequest(BaseModel):
         "ADVERTISEMENT",
         "OFFENSIVE_POSTCARD",
         "OTHER",
-    ]
-    detail: str | None = Field(default=None, max_length=1000)
+    ] = Field(description="신고 사유 코드")
+    detail: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="신고 사유 상세 내용. 최대 1,000자",
+    )
 
 
 class ReportData(BaseModel):
-    id: UUID
-    target_type: str
-    target_id: UUID
-    reason_code: str
-    status: str
-    created_at: datetime
+    """접수된 신고 정보."""
+
+    id: UUID = Field(description="신고 고유 ID")
+    target_type: str = Field(description="신고 대상 유형")
+    target_id: UUID = Field(description="신고 대상 고유 ID")
+    reason_code: str = Field(description="신고 사유 코드")
+    status: str = Field(description="신고 처리 상태")
+    created_at: datetime = Field(description="신고 접수 시각")
 
 
 class PublicUser(BaseModel):
-    id: UUID
-    nickname: str
-    profile_image_url: str | None = None
+    """외부에 공개되는 사용자 요약 정보."""
+
+    id: UUID = Field(description="사용자 고유 ID")
+    nickname: str = Field(description="사용자 닉네임")
+    profile_image_url: str | None = Field(default=None, description="프로필 이미지 URL")
 
 
 class MatchDetailData(BaseModel):
-    id: UUID
-    my_photo: MatchedPhoto
-    partner_photo: MatchedPhoto
-    partner: MatchPartner | None
-    explanation: str
-    matched_at: datetime
-    hidden: bool
+    """매칭 상세 정보."""
+
+    id: UUID = Field(description="매칭 고유 ID")
+    my_photo: MatchedPhoto = Field(description="매칭에 참여한 내 사진")
+    partner_photo: MatchedPhoto = Field(description="매칭된 상대 사진")
+    partner: MatchPartner | None = Field(description="매칭 상대 정보. 탈퇴한 경우 null")
+    explanation: str = Field(description="두 사진이 매칭된 이유")
+    matched_at: datetime = Field(description="매칭 성사 시각")
+    hidden: bool = Field(description="내 순간 목록에서 숨김 처리되었는지 여부")
     postcard_permission: Literal[
         "CAN_SEND",
         "WAITING_FOR_FIRST",
         "ALREADY_SENT",
         "BLOCKED",
-    ]
+    ] = Field(description="현재 사용자의 엽서 발송 가능 상태")
 
 
 class MatchVisibilityRequest(BaseModel):
-    hidden: bool
+    """매칭 숨김 상태 변경 요청."""
+
+    hidden: bool = Field(description="숨기려면 true, 다시 표시하려면 false")
 
 
 class MatchVisibilityData(BaseModel):
-    match_id: UUID
-    hidden: bool
+    """변경된 매칭 숨김 상태."""
+
+    match_id: UUID = Field(description="매칭 고유 ID")
+    hidden: bool = Field(description="변경 후 숨김 여부")
 
 
 class BlockedUser(BaseModel):
-    user: PublicUser
-    blocked_at: datetime
+    """차단한 사용자 정보."""
+
+    user: PublicUser = Field(description="차단한 사용자 요약")
+    blocked_at: datetime = Field(description="차단한 시각")
 
 
 class BlockedUserListData(BaseModel):
-    items: list[BlockedUser]
-    next_cursor: str | None
-    has_next: bool
+    """차단 사용자 목록 조회 결과."""
+
+    items: list[BlockedUser] = Field(description="현재 페이지의 차단 사용자 목록")
+    next_cursor: str | None = Field(description="다음 페이지 조회용 커서. 없으면 null")
+    has_next: bool = Field(description="다음 페이지 존재 여부")
 
 
 class NotificationData(BaseModel):
-    id: UUID
-    type: str
-    title: str
-    message: str
-    target_type: str | None = None
-    target_id: UUID | None = None
-    is_read: bool
-    created_at: datetime
+    """사용자 알림 정보."""
+
+    id: UUID = Field(description="알림 고유 ID")
+    type: str = Field(description="알림 유형")
+    title: str = Field(description="알림 제목")
+    message: str = Field(description="알림 본문")
+    target_type: str | None = Field(default=None, description="연결된 대상 유형")
+    target_id: UUID | None = Field(default=None, description="연결된 대상 고유 ID")
+    is_read: bool = Field(description="읽음 여부")
+    created_at: datetime = Field(description="알림 생성 시각")
 
 
 class NotificationListData(BaseModel):
-    items: list[NotificationData]
-    unread_count: int = Field(ge=0)
-    next_cursor: str | None
-    has_next: bool
+    """알림 목록 조회 결과."""
+
+    items: list[NotificationData] = Field(description="현재 페이지의 알림 목록")
+    unread_count: int = Field(ge=0, description="전체 읽지 않은 알림 개수")
+    next_cursor: str | None = Field(description="다음 페이지 조회용 커서. 없으면 null")
+    has_next: bool = Field(description="다음 페이지 존재 여부")
 
 
 class SendPostcardRequest(BaseModel):
-    content: str = Field(min_length=1, max_length=200)
+    """엽서 발송 요청."""
+
+    content: str = Field(
+        min_length=1,
+        max_length=200,
+        description="엽서 본문. 공백 제거 후 1~200자",
+    )
 
 
 class PostcardUser(BaseModel):
-    id: UUID
-    nickname: str
-    profile_image_url: str | None = None
+    """엽서 발신자 또는 수신자 정보."""
+
+    id: UUID = Field(description="사용자 고유 ID")
+    nickname: str = Field(description="사용자 닉네임")
+    profile_image_url: str | None = Field(default=None, description="프로필 이미지 URL")
 
 
 class PostcardData(BaseModel):
-    id: UUID
-    match_id: UUID
-    sender: PostcardUser
-    receiver: PostcardUser
-    content: str
-    is_read: bool
-    read_at: datetime | None
-    sent_at: datetime
-    moment_thumbnail_url: str
+    """엽서 상세 정보."""
+
+    id: UUID = Field(description="엽서 고유 ID")
+    match_id: UUID = Field(description="엽서가 연결된 매칭 고유 ID")
+    sender: PostcardUser = Field(description="엽서 발신자")
+    receiver: PostcardUser = Field(description="엽서 수신자")
+    content: str = Field(description="엽서 본문")
+    is_read: bool = Field(description="수신자의 읽음 여부")
+    read_at: datetime | None = Field(description="수신자가 읽은 시각. 읽지 않았으면 null")
+    sent_at: datetime = Field(description="엽서 발송 시각")
+    moment_thumbnail_url: str = Field(description="매칭된 내 순간 썸네일 URL")
 
 
 class PostcardListData(BaseModel):
-    items: list[PostcardData]
-    next_cursor: str | None
-    has_next: bool
+    """엽서 보관함 목록 조회 결과."""
+
+    items: list[PostcardData] = Field(description="현재 페이지의 엽서 목록")
+    next_cursor: str | None = Field(description="다음 페이지 조회용 커서. 없으면 null")
+    has_next: bool = Field(description="다음 페이지 존재 여부")
 
 
 class DeviceTokenRequest(BaseModel):
-    token: str = Field(min_length=1, max_length=512)
-    platform: Literal["IOS", "ANDROID"]
+    """푸시 알림 기기 토큰 등록 요청."""
+
+    token: str = Field(min_length=1, max_length=512, description="FCM 기기 등록 토큰")
+    platform: Literal["IOS", "ANDROID"] = Field(description="기기 운영체제")
 
 
 class NotificationSettingsData(BaseModel):
-    validation_enabled: bool
-    match_enabled: bool
-    postcard_enabled: bool
-    search_expired_enabled: bool
-    system_enabled: bool
+    """알림 유형별 수신 설정."""
+
+    validation_enabled: bool = Field(description="사진 검증 결과 알림 수신 여부")
+    match_enabled: bool = Field(description="매칭 성사 알림 수신 여부")
+    postcard_enabled: bool = Field(description="엽서 수신 알림 수신 여부")
+    search_expired_enabled: bool = Field(description="매칭 탐색 만료 알림 수신 여부")
+    system_enabled: bool = Field(description="서비스 공지 알림 수신 여부")
 
 
 class UpdateNotificationSettingsRequest(BaseModel):
-    validation_enabled: bool | None = None
-    match_enabled: bool | None = None
-    postcard_enabled: bool | None = None
-    search_expired_enabled: bool | None = None
-    system_enabled: bool | None = None
+    """알림 유형별 수신 설정 변경 요청."""
+
+    validation_enabled: bool | None = Field(default=None, description="사진 검증 결과 알림 수신 여부")
+    match_enabled: bool | None = Field(default=None, description="매칭 성사 알림 수신 여부")
+    postcard_enabled: bool | None = Field(default=None, description="엽서 수신 알림 수신 여부")
+    search_expired_enabled: bool | None = Field(
+        default=None,
+        description="매칭 탐색 만료 알림 수신 여부",
+    )
+    system_enabled: bool | None = Field(default=None, description="서비스 공지 알림 수신 여부")

@@ -162,10 +162,14 @@ def create_app(
         version="0.1.0",
         openapi_tags=[
             {"name": "Auth", "description": "카카오 로그인과 서비스 토큰 관리"},
+            {"name": "Users", "description": "사용자 온보딩, 프로필 및 회원 탈퇴"},
             {"name": "Home", "description": "홈 화면 상태 조회"},
-            {"name": "Photos", "description": "오늘 등록한 사진 조회"},
-            {"name": "Moments", "description": "매칭을 기다리는 순간 목록 조회"},
-            {"name": "Matches", "description": "새 매칭 조회 및 확인 처리"},
+            {"name": "Photos", "description": "등록 사진 조회 및 삭제"},
+            {"name": "Moments", "description": "상태별 순간 목록 조회"},
+            {"name": "Matches", "description": "매칭 조회, 확인 및 숨김 상태 관리"},
+            {"name": "Safety", "description": "사용자 차단과 콘텐츠 신고"},
+            {"name": "Notifications", "description": "알림 조회, 읽음 처리 및 수신 설정"},
+            {"name": "Postcards", "description": "매칭 상대와 주고받는 엽서 및 보관함"},
             {"name": "System", "description": "서버 및 의존 서비스 상태 확인"},
         ],
         lifespan=lifespan,
@@ -178,7 +182,12 @@ def create_app(
     app.add_exception_handler(RedisError, infrastructure_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(SQLAlchemyError, infrastructure_error_handler)  # type: ignore[arg-type]
 
-    @app.get("/health", tags=["System"], summary="서버 상태 확인")
+    @app.get(
+        "/health",
+        tags=["System"],
+        summary="서버 상태 확인",
+        description="API 프로세스가 정상적으로 응답하는지 확인합니다.",
+    )
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
@@ -224,7 +233,16 @@ def create_app(
         response.status_code = status.HTTP_201_CREATED if is_new_user else status.HTTP_200_OK
         return ApiResponse(data=data)
 
-    @app.post("/v1/auth/apple", response_model=ApiResponse[AuthData], tags=["Auth"])
+    @app.post(
+        "/v1/auth/apple",
+        response_model=ApiResponse[AuthData],
+        tags=["Auth"],
+        summary="Apple 로그인",
+        description=(
+            "Apple에서 발급받은 Identity Token으로 로그인합니다. "
+            "처음 로그인한 사용자는 회원 정보를 생성하며 HTTP 201을 반환합니다."
+        ),
+    )
     async def login_with_apple(
         request: AppleLoginRequest,
         response: Response,
@@ -296,6 +314,11 @@ def create_app(
         response_model=ApiResponse[UserProfile],
         status_code=status.HTTP_201_CREATED,
         tags=["Users"],
+        summary="사용자 온보딩 완료",
+        description=(
+            "필수 약관 동의와 닉네임 등 초기 프로필 정보를 저장하여 온보딩을 완료합니다. "
+            "프로필 이미지 업로드는 저장소 설정 전까지 지원하지 않습니다."
+        ),
     )
     async def complete_onboarding(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -332,6 +355,8 @@ def create_app(
         "/v1/users/me",
         response_model=ApiResponse[UserProfile],
         tags=["Users"],
+        summary="내 프로필 조회",
+        description="로그인 사용자의 프로필과 사진·매칭·받은 엽서 통계를 조회합니다.",
     )
     async def get_my_profile(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -348,6 +373,11 @@ def create_app(
         "/v1/users/me",
         response_model=ApiResponse[UserProfile],
         tags=["Users"],
+        summary="내 프로필 수정",
+        description=(
+            "로그인 사용자의 닉네임과 한 줄 소개를 수정합니다. "
+            "프로필 이미지 변경은 저장소 설정 전까지 지원하지 않습니다."
+        ),
     )
     async def update_my_profile(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -377,6 +407,8 @@ def create_app(
         "/v1/users/me",
         status_code=status.HTTP_202_ACCEPTED,
         tags=["Users"],
+        summary="회원 탈퇴",
+        description="계정을 탈퇴 상태로 변경하고 해당 사용자의 모든 Refresh Token을 폐기합니다.",
     )
     async def withdraw_my_account(
         request: WithdrawRequest,
@@ -548,6 +580,8 @@ def create_app(
         "/v1/photos/{photo_id}",
         response_model=ApiResponse[TodayPhoto],
         tags=["Photos"],
+        summary="사진 상세 조회",
+        description="로그인 사용자가 등록한 사진의 처리·매칭 상태를 상세 조회합니다.",
     )
     async def get_photo(
         photo_id: UUID,
@@ -592,6 +626,8 @@ def create_app(
         "/v1/photos/{photo_id}",
         status_code=status.HTTP_204_NO_CONTENT,
         tags=["Photos"],
+        summary="사진 삭제",
+        description="매칭 탐색 중이거나 만료된 본인 사진을 소프트 삭제합니다.",
     )
     async def delete_photo(
         photo_id: UUID,
@@ -717,6 +753,8 @@ def create_app(
         "/v1/matches/{match_id}",
         response_model=ApiResponse[MatchDetailData],
         tags=["Matches"],
+        summary="매칭 상세 조회",
+        description="매칭에 참여한 내 사진과 상대 사진, 매칭 설명 및 엽서 발송 가능 상태를 조회합니다.",
     )
     async def get_match(
         match_id: UUID,
@@ -732,6 +770,8 @@ def create_app(
         "/v1/matches/{match_id}/visibility",
         response_model=ApiResponse[MatchVisibilityData],
         tags=["Matches"],
+        summary="매칭 숨김 상태 변경",
+        description="내 순간 목록에서 지정한 매칭을 숨기거나 다시 표시합니다.",
     )
     async def update_match_visibility(
         match_id: UUID,
@@ -751,6 +791,11 @@ def create_app(
         response_model=ApiResponse[ReportData],
         status_code=status.HTTP_201_CREATED,
         tags=["Safety"],
+        summary="콘텐츠 또는 사용자 신고",
+        description=(
+            "사진·엽서·사용자를 신고합니다. 사용자 신고 시 해당 사용자를 함께 차단하며, "
+            "사진 신고 시 관련 매칭을 내 목록에서 숨깁니다."
+        ),
     )
     async def create_report(
         request: CreateReportRequest,
@@ -779,6 +824,8 @@ def create_app(
         "/v1/blocks",
         response_model=ApiResponse[BlockedUserListData],
         tags=["Safety"],
+        summary="차단 사용자 목록 조회",
+        description="로그인 사용자가 차단한 사용자 목록을 커서 기반 페이지네이션으로 조회합니다.",
     )
     async def list_blocked_users(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -814,7 +861,13 @@ def create_app(
             )
         )
 
-    @app.post("/v1/blocks/{user_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Safety"])
+    @app.post(
+        "/v1/blocks/{user_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["Safety"],
+        summary="사용자 차단",
+        description="지정한 사용자를 차단합니다. 본인은 차단할 수 없으며 중복 차단은 거절됩니다.",
+    )
     async def block_user(
         user_id: UUID,
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -823,7 +876,11 @@ def create_app(
         await repository.block(authenticated_user_id(claims), user_id)
 
     @app.delete(
-        "/v1/blocks/{user_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Safety"]
+        "/v1/blocks/{user_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["Safety"],
+        summary="사용자 차단 해제",
+        description="지정한 사용자의 차단을 해제합니다. 이미 해제된 경우에도 성공으로 처리합니다.",
     )
     async def unblock_user(
         user_id: UUID,
@@ -848,6 +905,8 @@ def create_app(
         "/v1/notifications",
         response_model=ApiResponse[NotificationListData],
         tags=["Notifications"],
+        summary="알림 목록 조회",
+        description="로그인 사용자의 알림을 최신순으로 조회하며 읽지 않은 알림 개수를 함께 반환합니다.",
     )
     async def list_notifications(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -880,6 +939,8 @@ def create_app(
         "/v1/notifications/{notification_id}/read",
         response_model=ApiResponse[NotificationData],
         tags=["Notifications"],
+        summary="알림 읽음 처리",
+        description="로그인 사용자의 지정한 알림 한 건을 읽음 상태로 변경합니다.",
     )
     async def mark_notification_read(
         notification_id: UUID,
@@ -893,6 +954,8 @@ def create_app(
         "/v1/notifications/read-all",
         status_code=status.HTTP_204_NO_CONTENT,
         tags=["Notifications"],
+        summary="모든 알림 읽음 처리",
+        description="로그인 사용자의 읽지 않은 알림을 모두 읽음 상태로 변경합니다.",
     )
     async def mark_all_notifications_read(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -918,6 +981,11 @@ def create_app(
         response_model=ApiResponse[PostcardData],
         status_code=status.HTTP_201_CREATED,
         tags=["Postcards"],
+        summary="엽서 발송",
+        description=(
+            "매칭된 상대에게 엽서를 한 번 발송합니다. 먼저 등록된 사진의 사용자가 첫 엽서를 "
+            "보내며, Idempotency-Key를 사용하면 같은 요청을 안전하게 재시도할 수 있습니다."
+        ),
     )
     async def send_postcard(
         match_id: UUID,
@@ -952,7 +1020,11 @@ def create_app(
         )
 
     @app.get(
-        "/v1/postcards/received", response_model=ApiResponse[PostcardListData], tags=["Postcards"]
+        "/v1/postcards/received",
+        response_model=ApiResponse[PostcardListData],
+        tags=["Postcards"],
+        summary="받은 엽서 목록 조회",
+        description="로그인 사용자가 받은 엽서를 최신순으로 페이지네이션하여 조회합니다.",
     )
     async def list_received_postcards(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -964,7 +1036,13 @@ def create_app(
             "received", authenticated_user_id(claims), repository, size, cursor
         )
 
-    @app.get("/v1/postcards/sent", response_model=ApiResponse[PostcardListData], tags=["Postcards"])
+    @app.get(
+        "/v1/postcards/sent",
+        response_model=ApiResponse[PostcardListData],
+        tags=["Postcards"],
+        summary="보낸 엽서 목록 조회",
+        description="로그인 사용자가 보낸 엽서를 최신순으로 페이지네이션하여 조회합니다.",
+    )
     async def list_sent_postcards(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
         repository: Annotated[PostcardRepository, Depends(get_postcard_repository)],
@@ -974,7 +1052,11 @@ def create_app(
         return await postcard_list("sent", authenticated_user_id(claims), repository, size, cursor)
 
     @app.get(
-        "/v1/postcards/{postcard_id}", response_model=ApiResponse[PostcardData], tags=["Postcards"]
+        "/v1/postcards/{postcard_id}",
+        response_model=ApiResponse[PostcardData],
+        tags=["Postcards"],
+        summary="엽서 상세 조회",
+        description="로그인 사용자가 보내거나 받은 엽서 한 건의 상세 내용을 조회합니다.",
     )
     async def get_postcard(
         postcard_id: UUID,
@@ -986,7 +1068,11 @@ def create_app(
         )
 
     @app.delete(
-        "/v1/postcards/{postcard_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["Postcards"]
+        "/v1/postcards/{postcard_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["Postcards"],
+        summary="엽서 삭제",
+        description="엽서를 로그인 사용자의 보관함에서만 삭제합니다. 상대방 보관함에는 영향을 주지 않습니다.",
     )
     async def delete_postcard(
         postcard_id: UUID,
@@ -999,6 +1085,8 @@ def create_app(
         "/v1/postcards/{postcard_id}/read",
         response_model=ApiResponse[PostcardData],
         tags=["Postcards"],
+        summary="엽서 읽음 처리",
+        description="로그인 사용자가 받은 엽서를 읽음 상태로 변경합니다.",
     )
     async def mark_postcard_read(
         postcard_id: UUID,
@@ -1020,7 +1108,13 @@ def create_app(
             system_enabled=settings.system_enabled,
         )
 
-    @app.post("/v1/device-tokens", status_code=status.HTTP_204_NO_CONTENT, tags=["Notifications"])
+    @app.post(
+        "/v1/device-tokens",
+        status_code=status.HTTP_204_NO_CONTENT,
+        tags=["Notifications"],
+        summary="기기 푸시 토큰 등록",
+        description="푸시 알림 발송에 사용할 iOS 또는 Android 기기 토큰을 등록하거나 갱신합니다.",
+    )
     async def register_device_token(
         request: DeviceTokenRequest,
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -1038,6 +1132,8 @@ def create_app(
         "/v1/notification-settings",
         response_model=ApiResponse[NotificationSettingsData],
         tags=["Notifications"],
+        summary="알림 설정 조회",
+        description="로그인 사용자의 알림 유형별 수신 설정을 조회합니다. 최초 조회 시 기본 설정을 생성합니다.",
     )
     async def get_notification_settings(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -1053,6 +1149,8 @@ def create_app(
         "/v1/notification-settings",
         response_model=ApiResponse[NotificationSettingsData],
         tags=["Notifications"],
+        summary="알림 설정 변경",
+        description="전달한 알림 유형의 수신 설정만 선택적으로 변경합니다.",
     )
     async def update_notification_settings(
         request: UpdateNotificationSettingsRequest,

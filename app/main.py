@@ -640,8 +640,11 @@ def create_app(
         "/v1/moments",
         response_model=ApiResponse[MomentListData],
         tags=["Moments"],
-        summary="매칭 대기 순간 목록 조회",
-        description="로그인 사용자의 매칭 대기 사진을 커서 기반 페이지네이션으로 조회합니다.",
+        summary="상태별 순간 목록 조회",
+        description=(
+            "로그인 사용자의 순간을 전체·매칭 중·매칭 완료·만료·숨김 상태로 필터링하여 "
+            "커서 기반 페이지네이션으로 조회합니다."
+        ),
     )
     async def list_moments(
         claims: Annotated[TokenClaims, Depends(require_access_token)],
@@ -685,6 +688,7 @@ def create_app(
                         match_id=photo.match_id,
                         matched_at=photo.matched_at,
                         hidden=photo.hidden,
+                        postcard_permission=photo.postcard_permission,
                     )
                     for photo in page
                 ],
@@ -746,7 +750,7 @@ def create_app(
             explanation=row.explanation,
             matched_at=row.matched_at,
             hidden=row.hidden,
-            postcard_permission="BLOCKED" if row.blocked else "CAN_SEND",
+            postcard_permission=row.postcard_permission,
         )
 
     @app.get(

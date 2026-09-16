@@ -206,7 +206,7 @@ class TodayPhotoData(BaseModel):
 
 
 class MomentPhoto(BaseModel):
-    """매칭을 기다리는 순간 사진."""
+    """상태별 순간 사진."""
 
     photo_id: UUID = Field(description="사진 고유 ID")
     image_url: str = Field(description="사진 이미지 URL")
@@ -226,10 +226,19 @@ class MomentPhoto(BaseModel):
     match_id: UUID | None = Field(default=None, description="성사된 매칭 고유 ID")
     matched_at: datetime | None = Field(default=None, description="매칭 성사 시각")
     hidden: bool = Field(default=False, description="내 순간 목록에서 숨김 처리되었는지 여부")
+    postcard_permission: Literal[
+        "CAN_SEND",
+        "WAITING_FOR_FIRST",
+        "ALREADY_SENT",
+        "BLOCKED",
+    ] | None = Field(
+        default=None,
+        description="매칭 완료 순간의 엽서 발송 가능 상태. 매칭 전에는 null",
+    )
 
 
 class MomentListData(BaseModel):
-    """매칭 대기 순간 목록 조회 결과."""
+    """상태별 순간 목록 조회 결과."""
 
     items: list[MomentPhoto] = Field(description="현재 페이지의 순간 목록")
     next_cursor: str | None = Field(description="다음 페이지 조회용 커서. 없으면 null")

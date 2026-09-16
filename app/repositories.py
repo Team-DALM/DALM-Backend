@@ -177,6 +177,7 @@ class MomentRow:
     match_id: UUID | None
     matched_at: datetime | None
     hidden: bool
+    postcard_permission: str | None
 
 
 @dataclass(frozen=True)
@@ -195,7 +196,24 @@ class MatchDetailRow:
     explanation: str
     matched_at: datetime
     hidden: bool
-    blocked: bool
+    postcard_permission: str
+
+
+def resolve_postcard_permission(
+    *,
+    blocked: bool,
+    sent_by_user: bool,
+    user_is_first_sender: bool,
+    first_sender_has_sent: bool,
+) -> str:
+    if blocked:
+        return "BLOCKED"
+    if sent_by_user:
+        return "ALREADY_SENT"
+    if not user_is_first_sender and not first_sender_has_sent:
+        return "WAITING_FOR_FIRST"
+    return "CAN_SEND"
+
 
 class ReportRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -734,6 +752,8 @@ class HomeRepository:
         cursor: tuple[datetime, UUID] | None,
     ) -> list[MomentRow]:
         participant = aliased(MatchParticipant)
+        partner = aliased(MatchParticipant)
+        partner_photo = aliased(Photo)
         match = aliased(Match)
         query = (
             select(
@@ -746,11 +766,38 @@ class HomeRepository:
                 participant.match_id,
                 match.matched_at,
                 participant.hidden_at,
+                partner_photo.registered_at,
+                partner_photo.id,
+                exists(
+                    select(Block.blocker_id).where(
+                        or_(
+                            and_(Block.blocker_id == user_id, Block.blocked_id == partner.user_id),
+                            and_(Block.blocker_id == partner.user_id, Block.blocked_id == user_id),
+                        )
+                    )
+                ),
+                exists(
+                    select(Postcard.id).where(
+                        Postcard.match_id == participant.match_id,
+                        Postcard.sender_id == user_id,
+                    )
+                ),
+                exists(
+                    select(Postcard.id).where(Postcard.match_id == participant.match_id)
+                ),
             )
             .outerjoin(
                 participant,
                 and_(participant.photo_id == Photo.id, participant.user_id == user_id),
             )
+            .outerjoin(
+                partner,
+                and_(
+                    partner.match_id == participant.match_id,
+                    partner.user_id != user_id,
+                ),
+            )
+            .outerjoin(partner_photo, partner_photo.id == partner.photo_id)
             .outerjoin(match, match.id == participant.match_id)
             .where(Photo.user_id == user_id, Photo.deleted_at.is_(None))
             .order_by(Photo.registered_at.desc(), Photo.id.desc())
@@ -770,9 +817,30 @@ class HomeRepository:
                 (Photo.registered_at < registered_at)
                 | ((Photo.registered_at == registered_at) & (Photo.id < photo_id))
             )
+        rows = (await self._session.execute(query)).all()
         return [
-            MomentRow(*row[:-1], hidden=row[-1] is not None)
-            for row in (await self._session.execute(query)).all()
+            MomentRow(
+                photo_id=row[0],
+                image_url=row[1],
+                ai_title=row[2],
+                status=row[3],
+                registered_at=row[4],
+                search_expires_at=row[5],
+                match_id=row[6],
+                matched_at=row[7],
+                hidden=row[8] is not None,
+                postcard_permission=(
+                    resolve_postcard_permission(
+                        blocked=bool(row[11]),
+                        sent_by_user=bool(row[12]),
+                        user_is_first_sender=(row[4], row[0]) <= (row[9], row[10]),
+                        first_sender_has_sent=bool(row[13]),
+                    )
+                    if row[3] == "MATCHED" and row[6] is not None
+                    else None
+                ),
+            )
+            for row in rows
         ]
 
     async def get_match_detail(self, user_id: UUID, match_id: UUID) -> MatchDetailRow | None:
@@ -810,6 +878,13 @@ class HomeRepository:
                             )
                         )
                     ),
+                    exists(
+                        select(Postcard.id).where(
+                            Postcard.match_id == Match.id,
+                            Postcard.sender_id == user_id,
+                        )
+                    ),
+                    exists(select(Postcard.id).where(Postcard.match_id == Match.id)),
                 )
                 .join(mine, and_(mine.match_id == Match.id, mine.user_id == user_id))
                 .join(partner, and_(partner.match_id == Match.id, partner.user_id != user_id))
@@ -836,7 +911,12 @@ class HomeRepository:
             explanation=row[11],
             matched_at=row[12],
             hidden=row[13] is not None,
-            blocked=bool(row[14]),
+            postcard_permission=resolve_postcard_permission(
+                blocked=bool(row[14]),
+                sent_by_user=bool(row[15]),
+                user_is_first_sender=(row[3], row[1]) <= (row[7], row[5]),
+                first_sender_has_sent=bool(row[16]),
+            ),
         )
 
     async def update_match_visibility(

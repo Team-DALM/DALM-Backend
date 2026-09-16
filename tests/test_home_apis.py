@@ -314,13 +314,13 @@ def test_moment_query_with_postcard_state_compiles_for_postgresql() -> None:
     class CompilingSession:
         async def execute(self, statement):
             statement.compile(dialect=postgresql.dialect())
-            return SimpleNamespace(all=lambda: [])
+            return SimpleNamespace(all=list)
 
     rows = asyncio.run(
         HomeRepository(CompilingSession()).list_moments(  # type: ignore[arg-type]
             USER_ID,
             status="MATCHED",
-            today=date.today(),
+            today=datetime.now(UTC).date(),
             exclude_today=False,
             size=20,
             cursor=None,

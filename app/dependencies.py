@@ -14,6 +14,7 @@ from app.repositories import (
     HomeRepository,
     NotificationPreferenceRepository,
     NotificationRepository,
+    PhotoValidationRepository,
     PostcardRepository,
     ReportRepository,
     SafetyRepository,
@@ -55,6 +56,12 @@ def get_home_repository(
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> HomeRepository:
     return HomeRepository(session)
+
+
+def get_photo_validation_repository(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> PhotoValidationRepository:
+    return PhotoValidationRepository(session)
 
 
 def get_notification_repository(

@@ -2,7 +2,19 @@ from datetime import date, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -90,6 +102,30 @@ class Photo(Base):
     rejection_code: Mapped[str | None] = mapped_column(String(50))
     rejection_message: Mapped[str | None] = mapped_column(String(200))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PhotoValidation(Base):
+    __tablename__ = "photo_validations"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING', 'PASSED', 'REJECTED', 'FAILED')",
+            name="photo_validations_status_ck",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
+    photo_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("photos.id"), unique=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="PENDING", index=True)
+    scores: Mapped[dict[str, float] | None] = mapped_column(JSON)
+    rejection_code: Mapped[str | None] = mapped_column(String(50))
+    model_name: Mapped[str | None] = mapped_column(String(100))
+    model_version: Mapped[str | None] = mapped_column(String(50))
+    processing_time_ms: Mapped[int | None] = mapped_column(Integer)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class Match(Base):

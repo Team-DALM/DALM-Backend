@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import binascii
+import hmac
 import math
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -26,6 +27,7 @@ from app.dependencies import (
     get_notification_preference_repository,
     get_notification_repository,
     get_photo_storage,
+    get_photo_validation_repository,
     get_postcard_repository,
     get_report_repository,
     get_safety_repository,
@@ -48,6 +50,7 @@ from app.repositories import (
     MatchDetailRow,
     NotificationPreferenceRepository,
     NotificationRepository,
+    PhotoValidationRepository,
     PostcardRepository,
     PostcardRow,
     ReportRepository,
@@ -79,6 +82,8 @@ from app.schemas import (
     NotificationListData,
     NotificationSettingsData,
     PhotoRejection,
+    PhotoValidationResultData,
+    PhotoValidationResultRequest,
     PostcardData,
     PostcardListData,
     PostcardUser,
@@ -180,6 +185,7 @@ def create_app(
             {"name": "Safety", "description": "사용자 차단과 콘텐츠 신고"},
             {"name": "Notifications", "description": "알림 조회, 읽음 처리 및 수신 설정"},
             {"name": "Postcards", "description": "매칭 상대와 주고받는 엽서 및 보관함"},
+            {"name": "Internal", "description": "내부 서비스 간 연동"},
             {"name": "System", "description": "서버 및 의존 서비스 상태 확인"},
         ],
         lifespan=lifespan,
@@ -586,6 +592,41 @@ def create_app(
                 photo_id=photo_id,
                 status="VALIDATING",
                 registered_at=photo.registered_at,
+            )
+        )
+
+    @app.post(
+        "/internal/v1/photo-validations/{job_id}/result",
+        response_model=ApiResponse[PhotoValidationResultData],
+        tags=["Internal"],
+        summary="사진 검증 결과 반영",
+        description="내부 AI 검증 서비스의 최종 결과를 원자적으로 사진 상태에 반영합니다.",
+    )
+    async def apply_photo_validation_result(
+        job_id: UUID,
+        body: PhotoValidationResultRequest,
+        repository: Annotated[
+            PhotoValidationRepository, Depends(get_photo_validation_repository)
+        ],
+        internal_key: Annotated[str | None, Header(alias="X-DALM-Internal-Key")] = None,
+    ) -> ApiResponse[PhotoValidationResultData]:
+        expected_key = resolved_settings.internal_api_key
+        if expected_key is None:
+            raise ApiError(
+                503,
+                "INTERNAL_API_NOT_CONFIGURED",
+                "내부 API 인증이 설정되지 않았습니다.",
+            )
+        if internal_key is None or not hmac.compare_digest(internal_key, expected_key):
+            raise ApiError(401, "INVALID_INTERNAL_API_KEY", "내부 API 인증에 실패했습니다.")
+        result = await repository.apply_result(job_id, **body.model_dump())
+        return ApiResponse(
+            data=PhotoValidationResultData(
+                job_id=result.id,
+                photo_id=result.photo_id,
+                status=result.status,
+                photo_status="SEARCHING" if result.status == "PASSED" else "REJECTED",
+                completed_at=result.completed_at,
             )
         )
 

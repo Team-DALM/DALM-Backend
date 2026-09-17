@@ -120,6 +120,7 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 | `DALM_DATABASE_URL` | 로컬 PostgreSQL | SQLAlchemy 비동기 연결 URL |
 | `DALM_REDIS_URL` | `redis://localhost:6380/0` | Redis 연결 URL |
 | `DALM_GCS_BUCKET` | 없음 | 비공개 사진을 저장할 Google Cloud Storage 버킷 이름 |
+| `DALM_INTERNAL_API_KEY` | 없음 | AI 검증 결과 콜백 인증에 사용하는 내부 API 키 |
 | `DALM_PHOTO_MAX_BYTES` | `10485760` | 업로드할 수 있는 사진의 최대 크기(바이트) |
 | `DALM_PHOTO_MIN_WIDTH` | `800` | 사진 최소 너비(px) |
 | `DALM_PHOTO_MIN_HEIGHT` | `1000` | 사진 최소 높이(px) |
@@ -138,6 +139,8 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 
 사진 업로드를 사용하려면 `asia-northeast3`의 비공개 GCS 버킷을 준비하고 Cloud Run 런타임
 서비스 계정에 객체 생성·조회·삭제 권한과 Signed URL 생성을 위한 `signBlob` 권한을 부여합니다.
+AI 검증 결과 콜백을 사용하려면 `DALM_INTERNAL_API_KEY`를 별도 Secret Manager 시크릿으로
+주입하고 호출 측도 같은 값을 `X-DALM-Internal-Key` 헤더로 보내야 합니다.
 
 ### 4. API 서버 실행
 

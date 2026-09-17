@@ -137,6 +137,7 @@ jobs:
             DALM_JWT_SECRET=dalm-jwt-secret:latest
             DALM_DATABASE_URL=dalm-database-url:latest
             DALM_REDIS_URL=dalm-redis-url:latest
+            DALM_INTERNAL_API_KEY=dalm-internal-api-key:latest
           secrets_update_strategy: overwrite
           env_vars: |-
             DALM_APPLE_CLIENT_IDS=${{ vars.APPLE_CLIENT_IDS }}

@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Generic, Literal, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 T = TypeVar("T")
 
@@ -166,6 +166,45 @@ class CreatePhotoData(BaseModel):
     photo_id: UUID = Field(description="등록된 사진 고유 ID")
     status: Literal["VALIDATING"] = Field(description="등록 직후 사진 처리 상태")
     registered_at: datetime = Field(description="사진 등록 시각")
+
+
+class PhotoValidationResultRequest(BaseModel):
+    """AI 사진 검증 서비스가 전달하는 최종 결과."""
+
+    status: Literal["PASSED", "REJECTED"] = Field(description="사진 검증 최종 결과")
+    scores: dict[str, float] | None = Field(default=None, description="항목별 검증 점수")
+    rejection_code: Literal[
+        "TOO_BLURRY",
+        "TOO_DARK",
+        "SCREENSHOT",
+        "TEXT_DOMINANT",
+        "QR_OR_BARCODE",
+        "SENSITIVE_INFORMATION",
+        "SEXUAL_OR_VIOLENT",
+        "ADVERTISEMENT",
+        "DUPLICATE_PHOTO",
+    ] | None = Field(default=None, description="사진 검증 거절 사유 코드")
+    model_name: str = Field(min_length=1, max_length=100, description="검증 모델 이름")
+    model_version: str = Field(min_length=1, max_length=50, description="검증 모델 버전")
+    processing_time_ms: int = Field(ge=0, description="검증 처리 시간(밀리초)")
+
+    @model_validator(mode="after")
+    def validate_result(self) -> "PhotoValidationResultRequest":
+        if self.status == "REJECTED" and self.rejection_code is None:
+            raise ValueError("REJECTED 결과에는 rejection_code가 필요합니다.")
+        if self.status == "PASSED" and self.rejection_code is not None:
+            raise ValueError("PASSED 결과에는 rejection_code를 지정할 수 없습니다.")
+        if self.scores and any(not 0 <= score <= 1 for score in self.scores.values()):
+            raise ValueError("scores 값은 0 이상 1 이하여야 합니다.")
+        return self
+
+
+class PhotoValidationResultData(BaseModel):
+    job_id: UUID = Field(description="사진 검증 작업 고유 ID")
+    photo_id: UUID = Field(description="검증된 사진 고유 ID")
+    status: Literal["PASSED", "REJECTED"] = Field(description="반영된 검증 결과")
+    photo_status: Literal["SEARCHING", "REJECTED"] = Field(description="변경된 사진 상태")
+    completed_at: datetime = Field(description="검증 결과 반영 시각")
 
 
 class TodayPhoto(BaseModel):

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import and_, delete, exists, func, or_, select, update
@@ -16,11 +16,13 @@ from app.models import (
     Notification,
     NotificationSetting,
     Photo,
+    PhotoValidation,
     Postcard,
     Report,
     User,
     UserTerm,
 )
+from app.notifications import TEMPLATES
 
 
 class UserRepository:
@@ -722,6 +724,7 @@ class HomeRepository:
             registered_date=registered_date,
         )
         self._session.add(photo)
+        self._session.add(PhotoValidation(photo_id=photo_id, status="PENDING"))
         try:
             await self._session.commit()
         except IntegrityError as exc:
@@ -1116,3 +1119,87 @@ class HomeRepository:
             participant.viewed_at = datetime.now(UTC)
             await self._session.commit()
         return participant.viewed_at
+
+
+REJECTION_MESSAGES = {
+    "TOO_BLURRY": "사진이 너무 흐립니다.",
+    "TOO_DARK": "사진이 너무 어둡습니다.",
+    "SCREENSHOT": "스크린샷이나 메신저 캡처는 등록할 수 없습니다.",
+    "TEXT_DOMINANT": "문자 위주의 사진은 등록할 수 없습니다.",
+    "QR_OR_BARCODE": "QR 코드나 바코드가 포함된 사진은 등록할 수 없습니다.",
+    "SENSITIVE_INFORMATION": "민감한 개인정보가 포함된 사진은 등록할 수 없습니다.",
+    "SEXUAL_OR_VIOLENT": "안전 정책에 맞지 않는 사진입니다.",
+    "ADVERTISEMENT": "광고 또는 홍보성 사진은 등록할 수 없습니다.",
+    "DUPLICATE_PHOTO": "이미 등록한 사진입니다.",
+}
+
+
+class PhotoValidationRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def apply_result(
+        self,
+        job_id: UUID,
+        *,
+        status: str,
+        scores: dict[str, float] | None,
+        rejection_code: str | None,
+        model_name: str,
+        model_version: str,
+        processing_time_ms: int,
+    ) -> PhotoValidation:
+        validation = (
+            await self._session.execute(
+                select(PhotoValidation).where(PhotoValidation.id == job_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if validation is None:
+            raise ApiError(404, "VALIDATION_JOB_NOT_FOUND", "사진 검증 작업을 찾을 수 없습니다.")
+        if validation.status != "PENDING":
+            if validation.status == status:
+                return validation
+            raise ApiError(409, "VALIDATION_ALREADY_COMPLETED", "이미 완료된 사진 검증 작업입니다.")
+
+        photo = (
+            await self._session.execute(
+                select(Photo).where(Photo.id == validation.photo_id).with_for_update()
+            )
+        ).scalar_one()
+        if photo.status != "VALIDATING":
+            raise ApiError(409, "PHOTO_NOT_VALIDATING", "사진이 검증 대기 상태가 아닙니다.")
+
+        validation.status = status
+        validation.scores = scores
+        validation.rejection_code = rejection_code
+        validation.model_name = model_name
+        validation.model_version = model_version
+        validation.processing_time_ms = processing_time_ms
+        validation.completed_at = datetime.now(UTC)
+
+        notification_type = "VALIDATION_PASSED" if status == "PASSED" else "PHOTO_REJECTED"
+        if status == "PASSED":
+            photo.status = "SEARCHING"
+            photo.search_expires_at = photo.registered_at + timedelta(days=7)
+            photo.rejection_code = None
+            photo.rejection_message = None
+        else:
+            photo.status = "REJECTED"
+            photo.rejection_code = rejection_code
+            photo.rejection_message = REJECTION_MESSAGES.get(
+                rejection_code or "", "사진 검증을 통과하지 못했습니다."
+            )
+
+        template = TEMPLATES[notification_type]
+        self._session.add(
+            Notification(
+                user_id=photo.user_id,
+                type=notification_type,
+                title=template.title,
+                message=template.message,
+                target_type=template.target_type,
+                target_id=photo.id,
+            )
+        )
+        await self._session.commit()
+        return validation

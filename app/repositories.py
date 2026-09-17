@@ -204,16 +204,18 @@ class MatchDetailRow:
 def resolve_postcard_permission(
     *,
     blocked: bool,
-    sent_by_user: bool,
     user_is_first_sender: bool,
-    first_sender_has_sent: bool,
+    last_sender_id: UUID | None,
+    user_id: UUID,
 ) -> str:
     if blocked:
         return "BLOCKED"
-    if sent_by_user:
-        return "ALREADY_SENT"
-    if not user_is_first_sender and not first_sender_has_sent:
+    if last_sender_id is None:
+        if user_is_first_sender:
+            return "CAN_SEND"
         return "WAITING_FOR_FIRST"
+    if last_sender_id == user_id:
+        return "WAITING_FOR_REPLY"
     return "CAN_SEND"
 
 
@@ -539,16 +541,19 @@ class PostcardRepository:
         ).first()
         if blocked:
             raise ApiError(409, "USER_BLOCKED", "차단 관계에서는 엽서를 보낼 수 없습니다.")
-        if user_id != first_id:
-            first_sent = (
-                await self._session.execute(
-                    select(Postcard.id).where(
-                        Postcard.match_id == match_id, Postcard.sender_id == first_id
-                    )
-                )
-            ).scalar_one_or_none()
-            if first_sent is None:
+        last_sender_id = (
+            await self._session.execute(
+                select(Postcard.sender_id)
+                .where(Postcard.match_id == match_id)
+                .order_by(Postcard.sent_at.desc(), Postcard.id.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if last_sender_id is None:
+            if user_id != first_id:
                 raise ApiError(409, "POSTCARD_ORDER_NOT_ALLOWED", "첫 엽서를 기다리고 있습니다.")
+        elif last_sender_id == user_id:
+            raise ApiError(409, "POSTCARD_REPLY_NOT_RECEIVED", "상대의 답 엽서를 기다리고 있습니다.")
         postcard = Postcard(
             match_id=match_id,
             sender_id=user_id,
@@ -869,13 +874,11 @@ class HomeRepository:
                         )
                     )
                 ),
-                exists(
-                    select(Postcard.id).where(
-                        Postcard.match_id == participant.match_id,
-                        Postcard.sender_id == user_id,
-                    )
-                ),
-                exists(select(Postcard.id).where(Postcard.match_id == participant.match_id)),
+                select(Postcard.sender_id)
+                .where(Postcard.match_id == participant.match_id)
+                .order_by(Postcard.sent_at.desc(), Postcard.id.desc())
+                .limit(1)
+                .scalar_subquery(),
             )
             .outerjoin(
                 participant,
@@ -923,9 +926,9 @@ class HomeRepository:
                 postcard_permission=(
                     resolve_postcard_permission(
                         blocked=bool(row[11]),
-                        sent_by_user=bool(row[12]),
                         user_is_first_sender=(row[4], row[0]) <= (row[9], row[10]),
-                        first_sender_has_sent=bool(row[13]),
+                        last_sender_id=row[12],
+                        user_id=user_id,
                     )
                     if row[3] == "MATCHED" and row[6] is not None
                     else None
@@ -969,13 +972,11 @@ class HomeRepository:
                             )
                         )
                     ),
-                    exists(
-                        select(Postcard.id).where(
-                            Postcard.match_id == Match.id,
-                            Postcard.sender_id == user_id,
-                        )
-                    ),
-                    exists(select(Postcard.id).where(Postcard.match_id == Match.id)),
+                    select(Postcard.sender_id)
+                    .where(Postcard.match_id == Match.id)
+                    .order_by(Postcard.sent_at.desc(), Postcard.id.desc())
+                    .limit(1)
+                    .scalar_subquery(),
                 )
                 .join(mine, and_(mine.match_id == Match.id, mine.user_id == user_id))
                 .join(partner, and_(partner.match_id == Match.id, partner.user_id != user_id))
@@ -1004,9 +1005,9 @@ class HomeRepository:
             hidden=row[13] is not None,
             postcard_permission=resolve_postcard_permission(
                 blocked=bool(row[14]),
-                sent_by_user=bool(row[15]),
                 user_is_first_sender=(row[3], row[1]) <= (row[7], row[5]),
-                first_sender_has_sent=bool(row[16]),
+                last_sender_id=row[15],
+                user_id=user_id,
             ),
         )
 

@@ -205,7 +205,6 @@ class Notification(Base):
 class Postcard(Base):
     __tablename__ = "postcards"
     __table_args__ = (
-        UniqueConstraint("match_id", "sender_id"),
         UniqueConstraint("sender_id", "idempotency_key"),
     )
 

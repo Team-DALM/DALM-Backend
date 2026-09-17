@@ -269,4 +269,5 @@ Content-Type: multipart/form-data
 | `SEARCH_PERIOD_EXPIRED` | 409 | N | 탐색 기간 종료 |
 | `POSTCARD_ALREADY_SENT` | 409 | N | 이미 엽서 발송 |
 | `POSTCARD_ORDER_NOT_ALLOWED` | 409 | N | 현재 발송 순서가 아님 |
+| `POSTCARD_REPLY_NOT_RECEIVED` | 409 | N | 상대 답장 전 연속 발송 |
 | `USER_BLOCKED` | 403 | N | 차단 관계 |

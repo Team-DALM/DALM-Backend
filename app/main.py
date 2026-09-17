@@ -82,6 +82,11 @@ from app.schemas import (
     NotificationListData,
     NotificationSettingsData,
     PhotoRejection,
+    PhotoValidationClaimData,
+    PhotoValidationClaimRequest,
+    PhotoValidationFailureData,
+    PhotoValidationFailureRequest,
+    PhotoValidationJobData,
     PhotoValidationResultData,
     PhotoValidationResultRequest,
     PostcardData,
@@ -198,6 +203,17 @@ def create_app(
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RedisError, infrastructure_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(SQLAlchemyError, infrastructure_error_handler)  # type: ignore[arg-type]
+
+    def verify_internal_key(internal_key: str | None) -> None:
+        expected_key = resolved_settings.internal_api_key
+        if expected_key is None:
+            raise ApiError(
+                503,
+                "INTERNAL_API_NOT_CONFIGURED",
+                "내부 API 인증이 설정되지 않았습니다.",
+            )
+        if internal_key is None or not hmac.compare_digest(internal_key, expected_key):
+            raise ApiError(401, "INVALID_INTERNAL_API_KEY", "내부 API 인증에 실패했습니다.")
 
     @app.get(
         "/health",
@@ -610,15 +626,7 @@ def create_app(
         ],
         internal_key: Annotated[str | None, Header(alias="X-DALM-Internal-Key")] = None,
     ) -> ApiResponse[PhotoValidationResultData]:
-        expected_key = resolved_settings.internal_api_key
-        if expected_key is None:
-            raise ApiError(
-                503,
-                "INTERNAL_API_NOT_CONFIGURED",
-                "내부 API 인증이 설정되지 않았습니다.",
-            )
-        if internal_key is None or not hmac.compare_digest(internal_key, expected_key):
-            raise ApiError(401, "INVALID_INTERNAL_API_KEY", "내부 API 인증에 실패했습니다.")
+        verify_internal_key(internal_key)
         result = await repository.apply_result(job_id, **body.model_dump())
         return ApiResponse(
             data=PhotoValidationResultData(
@@ -627,6 +635,85 @@ def create_app(
                 status=result.status,
                 photo_status="SEARCHING" if result.status == "PASSED" else "REJECTED",
                 completed_at=result.completed_at,
+            )
+        )
+
+    @app.post(
+        "/internal/v1/photo-validations/claim",
+        response_model=ApiResponse[PhotoValidationClaimData],
+        tags=["Internal"],
+        summary="사진 검증 작업 선점",
+        description="대기 중이거나 실행 제한 시간을 넘긴 사진 검증 작업 하나를 선점합니다.",
+    )
+    async def claim_photo_validation(
+        body: PhotoValidationClaimRequest,
+        repository: Annotated[
+            PhotoValidationRepository, Depends(get_photo_validation_repository)
+        ],
+        storage: Annotated[PhotoStorage, Depends(get_photo_storage)],
+        internal_key: Annotated[str | None, Header(alias="X-DALM-Internal-Key")] = None,
+    ) -> ApiResponse[PhotoValidationClaimData]:
+        verify_internal_key(internal_key)
+        claimed = await repository.claim_next(
+            worker_id=body.worker_id,
+            lease_seconds=resolved_settings.validation_lease_seconds,
+        )
+        if claimed is None:
+            return ApiResponse(data=PhotoValidationClaimData(job=None))
+        validation, photo = claimed
+        image_url = await storage.signed_url(
+            photo.storage_key,
+            resolved_settings.photo_signed_url_ttl_seconds,
+        )
+        return ApiResponse(
+            data=PhotoValidationClaimData(
+                job=PhotoValidationJobData(
+                    job_id=validation.id,
+                    photo_id=photo.id,
+                    storage_key=photo.storage_key,
+                    image_url=image_url,
+                    checks=[
+                        "QUALITY",
+                        "SCREENSHOT",
+                        "TEXT_DOMINANT",
+                        "QR_BARCODE",
+                        "SENSITIVE_INFORMATION",
+                        "SAFETY",
+                        "ADVERTISEMENT",
+                    ],
+                    attempt=validation.attempt_count,
+                )
+            )
+        )
+
+    @app.post(
+        "/internal/v1/photo-validations/{job_id}/failure",
+        response_model=ApiResponse[PhotoValidationFailureData],
+        tags=["Internal"],
+        summary="사진 검증 실행 오류 반영",
+        description="AI 실행 오류를 기록하고 재시도 또는 최종 실패 상태를 결정합니다.",
+    )
+    async def fail_photo_validation(
+        job_id: UUID,
+        body: PhotoValidationFailureRequest,
+        repository: Annotated[
+            PhotoValidationRepository, Depends(get_photo_validation_repository)
+        ],
+        internal_key: Annotated[str | None, Header(alias="X-DALM-Internal-Key")] = None,
+    ) -> ApiResponse[PhotoValidationFailureData]:
+        verify_internal_key(internal_key)
+        result = await repository.record_failure(
+            job_id,
+            **body.model_dump(),
+            max_attempts=resolved_settings.validation_max_attempts,
+            retry_base_seconds=resolved_settings.validation_retry_base_seconds,
+        )
+        return ApiResponse(
+            data=PhotoValidationFailureData(
+                job_id=result.id,
+                status=result.status,
+                attempt_count=result.attempt_count,
+                next_attempt_at=result.next_attempt_at,
             )
         )
 

@@ -108,7 +108,7 @@ class PhotoValidation(Base):
     __tablename__ = "photo_validations"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('PENDING', 'PASSED', 'REJECTED', 'FAILED')",
+            "status IN ('PENDING', 'PROCESSING', 'PASSED', 'REJECTED', 'FAILED')",
             name="photo_validations_status_ck",
         ),
     )
@@ -124,6 +124,11 @@ class PhotoValidation(Base):
     model_version: Mapped[str | None] = mapped_column(String(50))
     processing_time_ms: Mapped[int | None] = mapped_column(Integer)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    worker_id: Mapped[str | None] = mapped_column(String(100))
+    error_code: Mapped[str | None] = mapped_column(String(50))
+    error_message: Mapped[str | None] = mapped_column(String(500))
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

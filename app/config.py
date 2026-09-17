@@ -22,6 +22,9 @@ class Settings:
     photo_min_height: int = 1000
     photo_signed_url_ttl_seconds: int = 900
     internal_api_key: str | None = None
+    validation_max_attempts: int = 3
+    validation_retry_base_seconds: int = 30
+    validation_lease_seconds: int = 300
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -56,4 +59,9 @@ class Settings:
             photo_min_height=int(os.getenv("DALM_PHOTO_MIN_HEIGHT", "1000")),
             photo_signed_url_ttl_seconds=int(os.getenv("DALM_PHOTO_SIGNED_URL_TTL_SECONDS", "900")),
             internal_api_key=os.getenv("DALM_INTERNAL_API_KEY") or None,
+            validation_max_attempts=int(os.getenv("DALM_VALIDATION_MAX_ATTEMPTS", "3")),
+            validation_retry_base_seconds=int(
+                os.getenv("DALM_VALIDATION_RETRY_BASE_SECONDS", "30")
+            ),
+            validation_lease_seconds=int(os.getenv("DALM_VALIDATION_LEASE_SECONDS", "300")),
         )

@@ -187,6 +187,12 @@ class PhotoValidationResultRequest(BaseModel):
     model_name: str = Field(min_length=1, max_length=100, description="검증 모델 이름")
     model_version: str = Field(min_length=1, max_length=50, description="검증 모델 버전")
     processing_time_ms: int = Field(ge=0, description="검증 처리 시간(밀리초)")
+    worker_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=100,
+        description="작업을 선점한 워커 식별자",
+    )
 
     @model_validator(mode="after")
     def validate_result(self) -> "PhotoValidationResultRequest":
@@ -205,6 +211,43 @@ class PhotoValidationResultData(BaseModel):
     status: Literal["PASSED", "REJECTED"] = Field(description="반영된 검증 결과")
     photo_status: Literal["SEARCHING", "REJECTED"] = Field(description="변경된 사진 상태")
     completed_at: datetime = Field(description="검증 결과 반영 시각")
+
+
+class PhotoValidationClaimRequest(BaseModel):
+    worker_id: str = Field(min_length=1, max_length=100, description="작업을 실행할 워커 식별자")
+
+
+class PhotoValidationJobData(BaseModel):
+    job_id: UUID = Field(description="사진 검증 작업 고유 ID")
+    photo_id: UUID = Field(description="검증할 사진 고유 ID")
+    storage_key: str = Field(description="비공개 저장소 객체 키")
+    image_url: str = Field(description="짧게 유효한 사진 다운로드 URL")
+    checks: list[str] = Field(description="AI 워커가 수행할 검증 항목")
+    attempt: int = Field(ge=1, description="현재 검증 시도 횟수")
+
+
+class PhotoValidationClaimData(BaseModel):
+    job: PhotoValidationJobData | None = Field(
+        default=None, description="선점한 작업이며 대기 작업이 없으면 null"
+    )
+
+
+class PhotoValidationFailureRequest(BaseModel):
+    worker_id: str = Field(min_length=1, max_length=100, description="작업을 선점한 워커 식별자")
+    error_code: str = Field(min_length=1, max_length=50, description="AI 처리 오류 코드")
+    error_message: str | None = Field(
+        default=None, max_length=500, description="운영 확인용 오류 설명"
+    )
+    retryable: bool = Field(description="자동 재시도 가능한 오류인지 여부")
+
+
+class PhotoValidationFailureData(BaseModel):
+    job_id: UUID = Field(description="사진 검증 작업 고유 ID")
+    status: Literal["PENDING", "FAILED"] = Field(description="오류 반영 후 작업 상태")
+    attempt_count: int = Field(ge=1, description="누적 실행 시도 횟수")
+    next_attempt_at: datetime | None = Field(
+        default=None, description="다음 자동 재시도 가능 시각"
+    )
 
 
 class TodayPhoto(BaseModel):

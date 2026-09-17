@@ -1138,6 +1138,57 @@ class PhotoValidationRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def claim_next(
+        self,
+        *,
+        worker_id: str,
+        lease_seconds: int,
+    ) -> tuple[PhotoValidation, Photo] | None:
+        now = datetime.now(UTC)
+        stale_before = now - timedelta(seconds=lease_seconds)
+        validation = (
+            await self._session.execute(
+                select(PhotoValidation)
+                .where(
+                    or_(
+                        and_(
+                            PhotoValidation.status == "PENDING",
+                            or_(
+                                PhotoValidation.next_attempt_at.is_(None),
+                                PhotoValidation.next_attempt_at <= now,
+                            ),
+                        ),
+                        and_(
+                            PhotoValidation.status == "PROCESSING",
+                            PhotoValidation.started_at < stale_before,
+                        ),
+                    )
+                )
+                .order_by(PhotoValidation.created_at, PhotoValidation.id)
+                .with_for_update(skip_locked=True)
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if validation is None:
+            await self._session.rollback()
+            return None
+
+        photo = await self._session.get(Photo, validation.photo_id)
+        if photo is None or photo.status != "VALIDATING" or photo.storage_key is None:
+            validation.status = "FAILED"
+            validation.error_code = "PHOTO_NOT_AVAILABLE"
+            validation.completed_at = now
+            await self._session.commit()
+            return None
+
+        validation.status = "PROCESSING"
+        validation.worker_id = worker_id
+        validation.attempt_count += 1
+        validation.started_at = now
+        validation.next_attempt_at = None
+        await self._session.commit()
+        return validation, photo
+
     async def apply_result(
         self,
         job_id: UUID,
@@ -1148,6 +1199,7 @@ class PhotoValidationRepository:
         model_name: str,
         model_version: str,
         processing_time_ms: int,
+        worker_id: str | None,
     ) -> PhotoValidation:
         validation = (
             await self._session.execute(
@@ -1156,10 +1208,12 @@ class PhotoValidationRepository:
         ).scalar_one_or_none()
         if validation is None:
             raise ApiError(404, "VALIDATION_JOB_NOT_FOUND", "사진 검증 작업을 찾을 수 없습니다.")
-        if validation.status != "PENDING":
+        if validation.status not in {"PENDING", "PROCESSING"}:
             if validation.status == status:
                 return validation
             raise ApiError(409, "VALIDATION_ALREADY_COMPLETED", "이미 완료된 사진 검증 작업입니다.")
+        if validation.status == "PROCESSING" and validation.worker_id != worker_id:
+            raise ApiError(409, "VALIDATION_LEASE_LOST", "사진 검증 작업의 실행 권한이 만료되었습니다.")
 
         photo = (
             await self._session.execute(
@@ -1176,6 +1230,10 @@ class PhotoValidationRepository:
         validation.model_version = model_version
         validation.processing_time_ms = processing_time_ms
         validation.completed_at = datetime.now(UTC)
+        validation.worker_id = None
+        validation.error_code = None
+        validation.error_message = None
+        validation.next_attempt_at = None
 
         notification_type = "VALIDATION_PASSED" if status == "PASSED" else "PHOTO_REJECTED"
         if status == "PASSED":
@@ -1201,5 +1259,68 @@ class PhotoValidationRepository:
                 target_id=photo.id,
             )
         )
+        await self._session.commit()
+        return validation
+
+    async def record_failure(
+        self,
+        job_id: UUID,
+        *,
+        error_code: str,
+        error_message: str | None,
+        retryable: bool,
+        worker_id: str,
+        max_attempts: int,
+        retry_base_seconds: int,
+    ) -> PhotoValidation:
+        validation = (
+            await self._session.execute(
+                select(PhotoValidation).where(PhotoValidation.id == job_id).with_for_update()
+            )
+        ).scalar_one_or_none()
+        if validation is None:
+            raise ApiError(404, "VALIDATION_JOB_NOT_FOUND", "사진 검증 작업을 찾을 수 없습니다.")
+        if validation.status in {"PASSED", "REJECTED"}:
+            raise ApiError(409, "VALIDATION_ALREADY_COMPLETED", "이미 완료된 사진 검증 작업입니다.")
+        if validation.status == "FAILED":
+            return validation
+        if validation.status != "PROCESSING":
+            raise ApiError(409, "VALIDATION_NOT_PROCESSING", "실행 중인 사진 검증 작업이 아닙니다.")
+        if validation.worker_id != worker_id:
+            raise ApiError(409, "VALIDATION_LEASE_LOST", "사진 검증 작업의 실행 권한이 만료되었습니다.")
+
+        now = datetime.now(UTC)
+        validation.error_code = error_code
+        validation.error_message = error_message
+        validation.worker_id = None
+        validation.started_at = None
+        if retryable and validation.attempt_count < max_attempts:
+            delay = retry_base_seconds * (2 ** (validation.attempt_count - 1))
+            validation.status = "PENDING"
+            validation.next_attempt_at = now + timedelta(seconds=delay)
+        else:
+            validation.status = "FAILED"
+            validation.next_attempt_at = None
+            validation.completed_at = now
+            photo = (
+                await self._session.execute(
+                    select(Photo).where(Photo.id == validation.photo_id).with_for_update()
+                )
+            ).scalar_one()
+            if photo.status == "VALIDATING":
+                photo.status = "REJECTED"
+                photo.rejection_code = None
+                photo.rejection_message = "사진을 확인하지 못했습니다. 잠시 후 다시 등록해주세요."
+                template = TEMPLATES["PHOTO_REJECTED"]
+                self._session.add(
+                    Notification(
+                        user_id=photo.user_id,
+                        type="PHOTO_REJECTED",
+                        title="사진 확인이 지연됐어요",
+                        message="잠시 후 새로운 순간을 등록해주세요.",
+                        target_type=template.target_type,
+                        target_id=photo.id,
+                    )
+                )
         await self._session.commit()
         return validation

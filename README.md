@@ -121,6 +121,9 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 | `DALM_REDIS_URL` | `redis://localhost:6380/0` | Redis 연결 URL |
 | `DALM_GCS_BUCKET` | 없음 | 비공개 사진을 저장할 Google Cloud Storage 버킷 이름 |
 | `DALM_INTERNAL_API_KEY` | 없음 | AI 검증 결과 콜백 인증에 사용하는 내부 API 키 |
+| `DALM_VALIDATION_MAX_ATTEMPTS` | `3` | 사진 검증 작업 최대 실행 횟수 |
+| `DALM_VALIDATION_RETRY_BASE_SECONDS` | `30` | 사진 검증 지수 백오프 기준 시간(초) |
+| `DALM_VALIDATION_LEASE_SECONDS` | `300` | 실행 중 작업을 회수하는 제한 시간(초) |
 | `DALM_PHOTO_MAX_BYTES` | `10485760` | 업로드할 수 있는 사진의 최대 크기(바이트) |
 | `DALM_PHOTO_MIN_WIDTH` | `800` | 사진 최소 너비(px) |
 | `DALM_PHOTO_MIN_HEIGHT` | `1000` | 사진 최소 높이(px) |

@@ -24,6 +24,9 @@ class FakeDependency:
 class FakeValidationRepository:
     def __init__(self) -> None:
         self.received = None
+        self.claimed = None
+        self.failure = None
+        self.claim_result = None
 
     async def apply_result(self, job_id, **values):
         self.received = (job_id, values)
@@ -33,6 +36,26 @@ class FakeValidationRepository:
             status=values["status"],
             completed_at=datetime.now(UTC),
         )
+
+    async def claim_next(self, **values):
+        self.claimed = values
+        return self.claim_result
+
+    async def record_failure(self, job_id, **values):
+        self.failure = (job_id, values)
+        return SimpleNamespace(
+            id=job_id,
+            status="PENDING" if values["retryable"] else "FAILED",
+            attempt_count=1,
+            next_attempt_at=datetime.now(UTC) if values["retryable"] else None,
+        )
+
+
+class FakeStorage:
+    async def signed_url(self, key, expires_in):
+        assert key == "photos/user/photo/original.webp"
+        assert expires_in == 900
+        return "https://storage.example/signed"
 
 
 def make_client(*, internal_api_key="internal-test-key"):
@@ -46,6 +69,7 @@ def make_client(*, internal_api_key="internal-test-key"):
         database=dependency,
         cache=dependency,
         refresh_store=InMemoryRefreshTokenStore(),
+        photo_storage=FakeStorage(),
     )
     app.dependency_overrides[get_photo_validation_repository] = lambda: repository
     return TestClient(app), repository
@@ -58,6 +82,7 @@ def result_payload(**overrides):
         "model_name": "dalm-validator",
         "model_version": "1.0.0",
         "processing_time_ms": 820,
+        "worker_id": "validator-1",
     }
     payload.update(overrides)
     return payload
@@ -142,3 +167,75 @@ def test_scores_must_be_probabilities():
 
     assert response.status_code == 422
     assert repository.received is None
+
+
+def test_worker_claim_returns_no_job_when_queue_is_empty():
+    client, repository = make_client()
+
+    response = client.post(
+        "/internal/v1/photo-validations/claim",
+        headers={"X-DALM-Internal-Key": "internal-test-key"},
+        json={"worker_id": "validator-1"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["job"] is None
+    assert repository.claimed == {"worker_id": "validator-1", "lease_seconds": 300}
+
+
+def test_worker_claim_returns_private_photo_job():
+    client, repository = make_client()
+    repository.claim_result = (
+        SimpleNamespace(id=JOB_ID, attempt_count=2),
+        SimpleNamespace(id=PHOTO_ID, storage_key="photos/user/photo/original.webp"),
+    )
+
+    response = client.post(
+        "/internal/v1/photo-validations/claim",
+        headers={"X-DALM-Internal-Key": "internal-test-key"},
+        json={"worker_id": "validator-1"},
+    )
+
+    assert response.status_code == 200
+    job = response.json()["data"]["job"]
+    assert job["job_id"] == str(JOB_ID)
+    assert job["attempt"] == 2
+    assert job["image_url"] == "https://storage.example/signed"
+    assert "SAFETY" in job["checks"]
+
+
+def test_retryable_worker_failure_is_scheduled():
+    client, repository = make_client()
+
+    response = client.post(
+        f"/internal/v1/photo-validations/{JOB_ID}/failure",
+        headers={"X-DALM-Internal-Key": "internal-test-key"},
+        json={
+            "error_code": "MODEL_SERVER_ERROR",
+            "error_message": "timeout",
+            "retryable": True,
+            "worker_id": "validator-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "PENDING"
+    assert repository.failure[1]["max_attempts"] == 3
+    assert repository.failure[1]["retry_base_seconds"] == 30
+
+
+def test_non_retryable_worker_failure_is_final():
+    client, _ = make_client()
+
+    response = client.post(
+        f"/internal/v1/photo-validations/{JOB_ID}/failure",
+        headers={"X-DALM-Internal-Key": "internal-test-key"},
+        json={
+            "worker_id": "validator-1",
+            "error_code": "INVALID_IMAGE",
+            "retryable": False,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "FAILED"

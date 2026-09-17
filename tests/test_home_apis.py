@@ -4,11 +4,18 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy.dialects import postgresql
 
 from app.config import Settings
 from app.dependencies import get_home_repository
 from app.main import create_app
-from app.repositories import MatchCardRow, MatchDetailRow, MomentRow
+from app.repositories import (
+    HomeRepository,
+    MatchCardRow,
+    MatchDetailRow,
+    MomentRow,
+    resolve_postcard_permission,
+)
 from app.token_store import InMemoryRefreshTokenStore
 
 TEST_SETTINGS = Settings(jwt_secret="test-secret-that-is-long-enough-for-home-apis")
@@ -75,6 +82,7 @@ class FakeHomeRepository:
                 match_id=getattr(item, "match_id", None),
                 matched_at=getattr(item, "matched_at", None),
                 hidden=getattr(item, "hidden", False),
+                postcard_permission=getattr(item, "postcard_permission", None),
             )
             for item in self.searching_photos
         ]
@@ -239,6 +247,89 @@ def test_searching_moments_exclude_today_and_paginate() -> None:
     assert repository.list_args["size"] == 2
 
 
+def test_matched_moments_include_match_and_postcard_state() -> None:
+    repository = FakeHomeRepository()
+    match_id = uuid4()
+    matched_at = datetime.now(UTC)
+    repository.searching_photos = [
+        photo(
+            status="MATCHED",
+            search_expires_at=None,
+            match_id=match_id,
+            matched_at=matched_at,
+            postcard_permission="ALREADY_SENT",
+        )
+    ]
+    client, token = make_client(repository)
+
+    response = client.get("/v1/moments?status=MATCHED", headers=auth(token))
+    item = response.json()["data"]["items"][0]
+
+    assert response.status_code == 200
+    assert item["match_id"] == str(match_id)
+    assert item["matched_at"] == matched_at.isoformat().replace("+00:00", "Z")
+    assert item["postcard_permission"] == "ALREADY_SENT"
+
+
+def test_postcard_permission_covers_send_order_and_block_state() -> None:
+    assert (
+        resolve_postcard_permission(
+            blocked=True,
+            sent_by_user=False,
+            user_is_first_sender=True,
+            first_sender_has_sent=False,
+        )
+        == "BLOCKED"
+    )
+    assert (
+        resolve_postcard_permission(
+            blocked=False,
+            sent_by_user=True,
+            user_is_first_sender=True,
+            first_sender_has_sent=True,
+        )
+        == "ALREADY_SENT"
+    )
+    assert (
+        resolve_postcard_permission(
+            blocked=False,
+            sent_by_user=False,
+            user_is_first_sender=False,
+            first_sender_has_sent=False,
+        )
+        == "WAITING_FOR_FIRST"
+    )
+    assert (
+        resolve_postcard_permission(
+            blocked=False,
+            sent_by_user=False,
+            user_is_first_sender=False,
+            first_sender_has_sent=True,
+        )
+        == "CAN_SEND"
+    )
+
+
+def test_moment_query_with_postcard_state_compiles_for_postgresql() -> None:
+    class CompilingSession:
+        async def execute(self, statement):
+            statement.compile(dialect=postgresql.dialect())
+            return SimpleNamespace(all=list)
+
+    rows = asyncio.run(
+        HomeRepository(CompilingSession()).list_moments(  # type: ignore[arg-type]
+            USER_ID,
+            status="MATCHED",
+            today=datetime.now(UTC).date(),
+            exclude_today=False,
+            size=20,
+            cursor=None,
+        )
+    )
+
+    assert rows == []
+
+
 def test_unviewed_match_and_idempotent_view_contract() -> None:
     repository = FakeHomeRepository()
     match_id = uuid4()
@@ -297,7 +388,7 @@ def test_match_detail_returns_both_photos_and_partner() -> None:
         explanation="빛과 구도가 닮았어요.",
         matched_at=now,
         hidden=False,
-        blocked=False,
+        postcard_permission="CAN_SEND",
     )
     client, token = make_client(repository)
 

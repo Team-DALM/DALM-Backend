@@ -257,7 +257,7 @@ def test_matched_moments_include_match_and_postcard_state() -> None:
             search_expires_at=None,
             match_id=match_id,
             matched_at=matched_at,
-            postcard_permission="ALREADY_SENT",
+            postcard_permission="WAITING_FOR_REPLY",
         )
     ]
     client, token = make_client(repository)
@@ -268,43 +268,54 @@ def test_matched_moments_include_match_and_postcard_state() -> None:
     assert response.status_code == 200
     assert item["match_id"] == str(match_id)
     assert item["matched_at"] == matched_at.isoformat().replace("+00:00", "Z")
-    assert item["postcard_permission"] == "ALREADY_SENT"
+    assert item["postcard_permission"] == "WAITING_FOR_REPLY"
 
 
 def test_postcard_permission_covers_send_order_and_block_state() -> None:
+    user_id = uuid4()
+    partner_id = uuid4()
+    assert (
+        resolve_postcard_permission(
+            blocked=False,
+            user_is_first_sender=True,
+            last_sender_id=None,
+            user_id=user_id,
+        )
+        == "CAN_SEND"
+    )
     assert (
         resolve_postcard_permission(
             blocked=True,
-            sent_by_user=False,
             user_is_first_sender=True,
-            first_sender_has_sent=False,
+            last_sender_id=None,
+            user_id=user_id,
         )
         == "BLOCKED"
     )
     assert (
         resolve_postcard_permission(
             blocked=False,
-            sent_by_user=True,
             user_is_first_sender=True,
-            first_sender_has_sent=True,
+            last_sender_id=user_id,
+            user_id=user_id,
         )
-        == "ALREADY_SENT"
+        == "WAITING_FOR_REPLY"
     )
     assert (
         resolve_postcard_permission(
             blocked=False,
-            sent_by_user=False,
             user_is_first_sender=False,
-            first_sender_has_sent=False,
+            last_sender_id=None,
+            user_id=user_id,
         )
         == "WAITING_FOR_FIRST"
     )
     assert (
         resolve_postcard_permission(
             blocked=False,
-            sent_by_user=False,
             user_is_first_sender=False,
-            first_sender_has_sent=True,
+            last_sender_id=partner_id,
+            user_id=user_id,
         )
         == "CAN_SEND"
     )

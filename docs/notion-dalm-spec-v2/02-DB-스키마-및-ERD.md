@@ -8,7 +8,7 @@
 - 위치정보는 저장하지 않으며 업로드 시 EXIF GPS를 제거한다.
 - AI 결과마다 `model_name`, `model_version`을 기록한다.
 - 매칭 결과는 재현 가능하도록 요소별 점수와 최종 점수를 저장한다.
-- 사진당 한 번의 매칭과 매칭당 사용자별 한 번의 엽서를 DB 제약조건으로 보호한다.
+- 사진당 한 번의 매칭과 엽서 요청별 멱등성을 DB 제약조건으로 보호한다.
 - 사진 상태 변경과 매칭 생성은 트랜잭션으로 처리한다.
 
 ---
@@ -234,12 +234,12 @@ UNIQUE (photo_a_id, photo_b_id)
 | `receiver_deleted_at` | TIMESTAMPTZ | Y |  | 받은함에서 숨김 |
 
 ```sql
-UNIQUE (match_id, sender_id)
+INDEX (match_id, sent_at DESC, id DESC)
 CHECK (sender_id <> receiver_id)
 CHECK (length(trim(content)) BETWEEN 1 AND 200)
 ```
 
-엽서는 발송 후 내용을 수정하거나 재발송하지 않는다.
+각 엽서는 발송 후 내용을 수정하거나 회수하지 않는다. 대화는 먼저 사진을 등록한 사용자부터 한 장씩 번갈아 이어간다.
 
 ---
 
@@ -313,4 +313,3 @@ stateDiagram-v2
 ```
 
 `DRAFT`는 Flutter 로컬 편집 상태로 관리하고, 서버에는 등록 확정 시 `VALIDATING`부터 저장하는 것을 권장한다.
-

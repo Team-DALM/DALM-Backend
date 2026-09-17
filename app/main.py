@@ -1196,8 +1196,8 @@ def create_app(
         tags=["Postcards"],
         summary="엽서 발송",
         description=(
-            "매칭된 상대에게 엽서를 한 번 발송합니다. 먼저 등록된 사진의 사용자가 첫 엽서를 "
-            "보내며, Idempotency-Key를 사용하면 같은 요청을 안전하게 재시도할 수 있습니다."
+            "매칭된 상대에게 엽서를 발송합니다. 먼저 등록된 사진의 사용자가 시작하고, 이후 "
+            "서로 한 장씩 번갈아 답장합니다. Idempotency-Key로 같은 요청을 안전하게 재시도할 수 있습니다."
         ),
     )
     async def send_postcard(

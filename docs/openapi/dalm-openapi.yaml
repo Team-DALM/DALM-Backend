@@ -12,7 +12,7 @@ info:
     - 사진은 4:5 비율이며 등록 후 AI 적합성 검사를 수행
     - 통과한 사진은 최대 7일 동안 매칭 후보를 탐색
     - 한 사진은 최대 한 번만 매칭
-    - 매칭당 각 사용자는 엽서를 최대 한 장만 발송
+    - 먼저 사진을 등록한 사용자부터 서로 한 장씩 번갈아 엽서 발송
     - 정확한 위치, 연락처, 카카오 친구 목록은 수집하거나 공개하지 않음
 servers:
   - url: http://localhost:8000/v1
@@ -441,7 +441,7 @@ paths:
     post:
       tags: [Postcards]
       summary: 매칭 상대에게 엽서 발송
-      description: 매칭 참여자만 순서 정책에 따라 사용자별 한 번 발송할 수 있습니다.
+      description: 매칭 참여자만 먼저 등록한 사용자부터 한 장씩 번갈아 발송할 수 있습니다.
       operationId: sendPostcard
       parameters:
         - $ref: '#/components/parameters/MatchId'
@@ -1320,7 +1320,7 @@ components:
           default: false
         postcard_permission:
           type: string
-          enum: [CAN_SEND, WAITING_FOR_FIRST, ALREADY_SENT, BLOCKED]
+          enum: [CAN_SEND, WAITING_FOR_FIRST, WAITING_FOR_REPLY, BLOCKED]
 
     MatchedPhoto:
       type: object

@@ -318,7 +318,7 @@ class MomentPhoto(BaseModel):
         Literal[
             "CAN_SEND",
             "WAITING_FOR_FIRST",
-            "ALREADY_SENT",
+            "WAITING_FOR_REPLY",
             "BLOCKED",
         ]
         | None
@@ -434,7 +434,7 @@ class MatchDetailData(BaseModel):
     postcard_permission: Literal[
         "CAN_SEND",
         "WAITING_FOR_FIRST",
-        "ALREADY_SENT",
+        "WAITING_FOR_REPLY",
         "BLOCKED",
     ] = Field(description="현재 사용자의 엽서 발송 가능 상태")
 

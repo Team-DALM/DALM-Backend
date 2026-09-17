@@ -3,15 +3,15 @@ import base64
 import binascii
 import math
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from typing import Annotated, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, File, Form, Header, Query, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -25,6 +25,7 @@ from app.dependencies import (
     get_home_repository,
     get_notification_preference_repository,
     get_notification_repository,
+    get_photo_storage,
     get_postcard_repository,
     get_report_repository,
     get_safety_repository,
@@ -40,6 +41,8 @@ from app.errors import (
 )
 from app.kakao import KakaoClient
 from app.models import Notification
+from app.photo_storage import GcsPhotoStorage, PhotoStorage, UnconfiguredPhotoStorage
+from app.photo_upload import process_photo
 from app.repositories import (
     HomeRepository,
     MatchDetailRow,
@@ -57,6 +60,7 @@ from app.schemas import (
     AuthData,
     BlockedUser,
     BlockedUserListData,
+    CreatePhotoData,
     CreateReportRequest,
     DeviceTokenRequest,
     HomeData,
@@ -123,6 +127,7 @@ def create_app(
     refresh_store: RefreshTokenStore | None = None,
     kakao_client: KakaoClient | None = None,
     apple_client: AppleClient | None = None,
+    photo_storage: PhotoStorage | None = None,
 ) -> FastAPI:
     resolved_settings = settings or Settings.from_env()
     resolved_database = database or Database(resolved_settings.database_url)
@@ -142,6 +147,11 @@ def create_app(
         resolved_settings.apple_issuer,
         resolved_settings.apple_client_ids,
         resolved_settings.apple_timeout_seconds,
+    )
+    resolved_photo_storage = photo_storage or (
+        GcsPhotoStorage(resolved_settings.gcs_bucket)
+        if resolved_settings.gcs_bucket
+        else UnconfiguredPhotoStorage()
     )
 
     @asynccontextmanager
@@ -177,6 +187,7 @@ def create_app(
     app.state.token_service = TokenService(resolved_settings, resolved_refresh_store)
     app.state.kakao_client = resolved_kakao_client
     app.state.apple_client = resolved_apple_client
+    app.state.photo_storage = resolved_photo_storage
     app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, request_validation_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RedisError, infrastructure_error_handler)  # type: ignore[arg-type]
@@ -527,6 +538,80 @@ def create_app(
         except (ValueError, UnicodeDecodeError, binascii.Error) as exc:
             raise ApiError(422, "INVALID_CURSOR", "cursor 형식이 올바르지 않습니다.") from exc
 
+    @app.post(
+        "/v1/photos",
+        response_model=ApiResponse[CreatePhotoData],
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["Photos"],
+        summary="오늘 사진 등록",
+        description=(
+            "4:5 사진을 검증하고 EXIF 정보를 제거한 뒤 비공개 저장소에 저장합니다. "
+            "등록 직후 상태는 VALIDATING입니다."
+        ),
+    )
+    async def create_photo(
+        image: Annotated[UploadFile, File(description="JPEG, PNG 또는 WEBP 형식의 4:5 이미지")],
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+        storage: Annotated[PhotoStorage, Depends(get_photo_storage)],
+    ) -> ApiResponse[CreatePhotoData]:
+        photo_id = uuid4()
+        user_id = authenticated_user_id(claims)
+        raw = await image.read(resolved_settings.photo_max_bytes + 1)
+        await image.close()
+        processed = process_photo(
+            raw,
+            image.content_type,
+            max_bytes=resolved_settings.photo_max_bytes,
+            min_width=resolved_settings.photo_min_width,
+            min_height=resolved_settings.photo_min_height,
+        )
+        storage_key = f"photos/{user_id}/{photo_id}/original.webp"
+        await storage.upload(storage_key, processed.content, processed.content_type)
+        try:
+            photo = await repository.create_photo(
+                photo_id=photo_id,
+                user_id=user_id,
+                image_url=f"/v1/photos/{photo_id}/image",
+                storage_key=storage_key,
+                checksum=processed.checksum,
+                registered_date=datetime.now(ZoneInfo("Asia/Seoul")).date(),
+            )
+        except Exception:
+            with suppress(Exception):
+                await storage.delete(storage_key)
+            raise
+        return ApiResponse(
+            data=CreatePhotoData(
+                photo_id=photo_id,
+                status="VALIDATING",
+                registered_at=photo.registered_at,
+            )
+        )
+
+    @app.get(
+        "/v1/photos/{photo_id}/image",
+        response_class=RedirectResponse,
+        tags=["Photos"],
+        summary="사진 이미지 접근",
+        description="사진 접근 권한을 확인한 후 짧게 유효한 비공개 저장소 URL로 이동합니다.",
+    )
+    async def get_photo_image(
+        photo_id: UUID,
+        claims: Annotated[TokenClaims, Depends(require_access_token)],
+        repository: Annotated[HomeRepository, Depends(get_home_repository)],
+        storage: Annotated[PhotoStorage, Depends(get_photo_storage)],
+    ) -> RedirectResponse:
+        photo = await repository.get_photo(photo_id)
+        if photo is None or photo.deleted_at is not None or photo.storage_key is None:
+            raise ApiError(404, "PHOTO_NOT_FOUND", "사진을 찾을 수 없습니다.")
+        if not await repository.can_access_photo(authenticated_user_id(claims), photo_id):
+            raise ApiError(403, "PHOTO_ACCESS_DENIED", "사진에 접근할 권한이 없습니다.")
+        signed_url = await storage.signed_url(
+            photo.storage_key, resolved_settings.photo_signed_url_ttl_seconds
+        )
+        return RedirectResponse(signed_url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
     @app.get(
         "/v1/photos/today",
         response_model=ApiResponse[TodayPhotoData],
@@ -843,9 +928,7 @@ def create_app(
         has_next = len(rows) > size
         page = rows[:size]
         next_cursor = (
-            encode_cursor(page[-1].blocked_at, page[-1].user_id)
-            if has_next and page
-            else None
+            encode_cursor(page[-1].blocked_at, page[-1].user_id) if has_next and page else None
         )
         return ApiResponse(
             data=BlockedUserListData(
@@ -927,9 +1010,7 @@ def create_app(
         )
         has_next = len(items) > size
         page = items[:size]
-        next_cursor = (
-            encode_cursor(page[-1].created_at, page[-1].id) if has_next and page else None
-        )
+        next_cursor = encode_cursor(page[-1].created_at, page[-1].id) if has_next and page else None
         return ApiResponse(
             data=NotificationListData(
                 items=[notification_data(item) for item in page],

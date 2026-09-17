@@ -16,6 +16,11 @@ class Settings:
     access_token_ttl_seconds: int = 1_800
     refresh_token_ttl_seconds: int = 2_592_000
     jwt_algorithm: str = "HS256"
+    gcs_bucket: str | None = None
+    photo_max_bytes: int = 10 * 1024 * 1024
+    photo_min_width: int = 800
+    photo_min_height: int = 1000
+    photo_signed_url_ttl_seconds: int = 900
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -39,15 +44,14 @@ class Settings:
                 for value in os.getenv("DALM_APPLE_CLIENT_IDS", "").split(",")
                 if value.strip()
             ),
-            apple_jwks_url=os.getenv(
-                "DALM_APPLE_JWKS_URL", "https://appleid.apple.com/auth/keys"
-            ),
+            apple_jwks_url=os.getenv("DALM_APPLE_JWKS_URL", "https://appleid.apple.com/auth/keys"),
             apple_issuer=os.getenv("DALM_APPLE_ISSUER", "https://appleid.apple.com"),
             apple_timeout_seconds=float(os.getenv("DALM_APPLE_TIMEOUT_SECONDS", "5")),
-            access_token_ttl_seconds=int(
-                os.getenv("DALM_ACCESS_TOKEN_TTL_SECONDS", "1800")
-            ),
-            refresh_token_ttl_seconds=int(
-                os.getenv("DALM_REFRESH_TOKEN_TTL_SECONDS", "2592000")
-            ),
+            access_token_ttl_seconds=int(os.getenv("DALM_ACCESS_TOKEN_TTL_SECONDS", "1800")),
+            refresh_token_ttl_seconds=int(os.getenv("DALM_REFRESH_TOKEN_TTL_SECONDS", "2592000")),
+            gcs_bucket=os.getenv("DALM_GCS_BUCKET") or None,
+            photo_max_bytes=int(os.getenv("DALM_PHOTO_MAX_BYTES", str(10 * 1024 * 1024))),
+            photo_min_width=int(os.getenv("DALM_PHOTO_MIN_WIDTH", "800")),
+            photo_min_height=int(os.getenv("DALM_PHOTO_MIN_HEIGHT", "1000")),
+            photo_signed_url_ttl_seconds=int(os.getenv("DALM_PHOTO_SIGNED_URL_TTL_SECONDS", "900")),
         )

@@ -140,6 +140,7 @@ jobs:
           secrets_update_strategy: overwrite
           env_vars: |-
             DALM_APPLE_CLIENT_IDS=${{ vars.APPLE_CLIENT_IDS }}
+            DALM_GCS_BUCKET=${{ vars.GCS_BUCKET }}
           flags: >-
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --port=8080

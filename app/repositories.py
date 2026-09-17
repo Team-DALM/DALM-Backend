@@ -267,18 +267,22 @@ class ReportRepository:
         else:
             target_participant = aliased(MatchParticipant)
             participant = (
-                await self._session.execute(
-                    select(MatchParticipant)
-                    .join(
-                        target_participant,
-                        target_participant.match_id == MatchParticipant.match_id,
-                    )
-                    .where(
-                        MatchParticipant.user_id == reporter_id,
-                        target_participant.photo_id == target_id,
+                (
+                    await self._session.execute(
+                        select(MatchParticipant)
+                        .join(
+                            target_participant,
+                            target_participant.match_id == MatchParticipant.match_id,
+                        )
+                        .where(
+                            MatchParticipant.user_id == reporter_id,
+                            target_participant.photo_id == target_id,
+                        )
                     )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             if participant is not None:
                 participant.hidden_at = datetime.now(UTC)
 
@@ -671,6 +675,92 @@ class HomeRepository:
     async def get_photo(self, photo_id: UUID) -> Photo | None:
         return await self._session.get(Photo, photo_id)
 
+    async def create_photo(
+        self,
+        *,
+        photo_id: UUID,
+        user_id: UUID,
+        image_url: str,
+        storage_key: str,
+        checksum: str,
+        registered_date: date,
+    ) -> Photo:
+        user = await self._session.get(User, user_id)
+        if user is None or user.status != "ACTIVE":
+            raise ApiError(
+                403, "ACCOUNT_NOT_ACTIVE", "활성 상태의 사용자만 사진을 등록할 수 있습니다."
+            )
+        if user.onboarding_required:
+            raise ApiError(409, "ONBOARDING_REQUIRED", "온보딩을 먼저 완료해주세요.")
+
+        active_photo = (
+            await self._session.execute(
+                select(Photo.id).where(
+                    Photo.user_id == user_id,
+                    Photo.registered_date == registered_date,
+                    Photo.status.in_({"VALIDATING", "SEARCHING", "MATCHED", "EXPIRED"}),
+                )
+            )
+        ).scalar_one_or_none()
+        if active_photo is not None:
+            raise ApiError(409, "TODAY_PHOTO_ALREADY_EXISTS", "오늘 등록한 사진이 이미 있습니다.")
+        duplicate = (
+            await self._session.execute(
+                select(Photo.id).where(Photo.user_id == user_id, Photo.checksum == checksum)
+            )
+        ).scalar_one_or_none()
+        if duplicate is not None:
+            raise ApiError(409, "DUPLICATE_PHOTO", "이미 등록한 사진입니다.")
+
+        photo = Photo(
+            id=photo_id,
+            user_id=user_id,
+            image_url=image_url,
+            storage_key=storage_key,
+            checksum=checksum,
+            status="VALIDATING",
+            registered_date=registered_date,
+        )
+        self._session.add(photo)
+        try:
+            await self._session.commit()
+        except IntegrityError as exc:
+            await self._session.rollback()
+            raise ApiError(
+                409, "PHOTO_CONFLICT", "사진을 등록할 수 없습니다. 다시 확인해주세요."
+            ) from exc
+        await self._session.refresh(photo)
+        return photo
+
+    async def can_access_photo(self, user_id: UUID, photo_id: UUID) -> bool:
+        owned = (
+            await self._session.execute(
+                select(Photo.id).where(
+                    Photo.id == photo_id,
+                    Photo.user_id == user_id,
+                    Photo.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one_or_none()
+        if owned is not None:
+            return True
+        target_participant = aliased(MatchParticipant)
+        viewer_participant = aliased(MatchParticipant)
+        shared_match = (
+            await self._session.execute(
+                select(target_participant.match_id)
+                .join(
+                    viewer_participant,
+                    viewer_participant.match_id == target_participant.match_id,
+                )
+                .where(
+                    target_participant.photo_id == photo_id,
+                    viewer_participant.user_id == user_id,
+                )
+            )
+        ).first()
+        return shared_match is not None
+
     async def delete_photo(self, user_id: UUID, photo_id: UUID) -> None:
         photo = await self.get_photo(photo_id)
         if photo is None or photo.status == "DELETED":
@@ -782,9 +872,7 @@ class HomeRepository:
                         Postcard.sender_id == user_id,
                     )
                 ),
-                exists(
-                    select(Postcard.id).where(Postcard.match_id == participant.match_id)
-                ),
+                exists(select(Postcard.id).where(Postcard.match_id == participant.match_id)),
             )
             .outerjoin(
                 participant,

@@ -119,6 +119,11 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 | `DALM_JWT_SECRET` | 없음 | JWT 서명 키, 최소 32자 필수 |
 | `DALM_DATABASE_URL` | 로컬 PostgreSQL | SQLAlchemy 비동기 연결 URL |
 | `DALM_REDIS_URL` | `redis://localhost:6380/0` | Redis 연결 URL |
+| `DALM_GCS_BUCKET` | 없음 | 비공개 사진을 저장할 Google Cloud Storage 버킷 이름 |
+| `DALM_PHOTO_MAX_BYTES` | `10485760` | 업로드할 수 있는 사진의 최대 크기(바이트) |
+| `DALM_PHOTO_MIN_WIDTH` | `800` | 사진 최소 너비(px) |
+| `DALM_PHOTO_MIN_HEIGHT` | `1000` | 사진 최소 높이(px) |
+| `DALM_PHOTO_SIGNED_URL_TTL_SECONDS` | `900` | 사진 조회용 Signed URL 유효 시간(초) |
 | `DALM_KAKAO_USER_INFO_URL` | 카카오 사용자 정보 API | 카카오 Access Token 검증 URL |
 | `DALM_KAKAO_TIMEOUT_SECONDS` | `5` | 카카오 API 제한 시간(초) |
 | `DALM_APPLE_CLIENT_IDS` | 없음 | 허용할 Apple 앱 Bundle ID 또는 Service ID. 여러 값은 쉼표로 구분 |
@@ -130,6 +135,9 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 
 운영 환경에서는 예시 값을 사용하지 말고 Secret Manager 등 안전한 저장소에서 무작위
 서명 키를 주입합니다. `.env` 파일은 Git에 커밋하지 않습니다.
+
+사진 업로드를 사용하려면 `asia-northeast3`의 비공개 GCS 버킷을 준비하고 Cloud Run 런타임
+서비스 계정에 객체 생성·조회·삭제 권한과 Signed URL 생성을 위한 `signBlob` 권한을 부여합니다.
 
 ### 4. API 서버 실행
 

@@ -9,6 +9,7 @@ from app.apple import AppleClient
 from app.auth import AuthService
 from app.errors import ApiError
 from app.kakao import KakaoClient
+from app.photo_storage import PhotoStorage
 from app.repositories import (
     HomeRepository,
     NotificationPreferenceRepository,
@@ -33,6 +34,10 @@ def get_kakao_client(request: Request) -> KakaoClient:
 
 def get_apple_client(request: Request) -> AppleClient:
     return request.app.state.apple_client
+
+
+def get_photo_storage(request: Request) -> PhotoStorage:
+    return request.app.state.photo_storage
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:

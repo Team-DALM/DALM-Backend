@@ -37,6 +37,7 @@ services:
       DALM_JWT_SECRET: ${DALM_JWT_SECRET:?Set DALM_JWT_SECRET in .env}
       DALM_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-dalm}:${POSTGRES_PASSWORD:-dalm}@postgres:5432/${POSTGRES_DB:-dalm}
       DALM_REDIS_URL: redis://redis:6379/0
+      DALM_GCS_BUCKET: ${DALM_GCS_BUCKET:-}
       DALM_ACCESS_TOKEN_TTL_SECONDS: ${DALM_ACCESS_TOKEN_TTL_SECONDS:-1800}
       DALM_REFRESH_TOKEN_TTL_SECONDS: ${DALM_REFRESH_TOKEN_TTL_SECONDS:-2592000}
     ports:
@@ -62,4 +63,3 @@ services:
 volumes:
   postgres_data:
   redis_data:
-

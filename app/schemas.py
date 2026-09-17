@@ -69,9 +69,7 @@ class AuthData(BaseModel):
     """로그인 결과."""
 
     is_new_user: bool = Field(description="이번 로그인에서 새로 가입한 사용자인지 여부")
-    onboarding_required: bool = Field(
-        description="약관 동의와 프로필 설정이 필요한지 여부"
-    )
+    onboarding_required: bool = Field(description="약관 동의와 프로필 설정이 필요한지 여부")
     tokens: TokenPair = Field(description="DALM 서비스 인증 토큰")
     user: AuthUser = Field(description="로그인한 사용자 정보")
 
@@ -162,6 +160,14 @@ class PhotoRejection(BaseModel):
     message: str = Field(description="사용자에게 표시할 거절 사유")
 
 
+class CreatePhotoData(BaseModel):
+    """사진 등록 및 비동기 검사 접수 결과."""
+
+    photo_id: UUID = Field(description="등록된 사진 고유 ID")
+    status: Literal["VALIDATING"] = Field(description="등록 직후 사진 처리 상태")
+    registered_at: datetime = Field(description="사진 등록 시각")
+
+
 class TodayPhoto(BaseModel):
     """오늘 등록한 사진과 처리 상태."""
 
@@ -226,12 +232,15 @@ class MomentPhoto(BaseModel):
     match_id: UUID | None = Field(default=None, description="성사된 매칭 고유 ID")
     matched_at: datetime | None = Field(default=None, description="매칭 성사 시각")
     hidden: bool = Field(default=False, description="내 순간 목록에서 숨김 처리되었는지 여부")
-    postcard_permission: Literal[
-        "CAN_SEND",
-        "WAITING_FOR_FIRST",
-        "ALREADY_SENT",
-        "BLOCKED",
-    ] | None = Field(
+    postcard_permission: (
+        Literal[
+            "CAN_SEND",
+            "WAITING_FOR_FIRST",
+            "ALREADY_SENT",
+            "BLOCKED",
+        ]
+        | None
+    ) = Field(
         default=None,
         description="매칭 완료 순간의 엽서 발송 가능 상태. 매칭 전에는 null",
     )
@@ -259,9 +268,7 @@ class UnviewedMatch(BaseModel):
 class UnviewedMatchData(BaseModel):
     """확인하지 않은 다음 매칭 조회 결과."""
 
-    match: UnviewedMatch | None = Field(
-        description="다음 미확인 매칭. 없으면 null"
-    )
+    match: UnviewedMatch | None = Field(description="다음 미확인 매칭. 없으면 null")
     unviewed_match_count: int = Field(
         description="전체 미확인 매칭 개수",
         ge=0,
@@ -295,9 +302,7 @@ class MatchPartner(BaseModel):
 class CreateReportRequest(BaseModel):
     """콘텐츠 또는 사용자 신고 요청."""
 
-    target_type: Literal["PHOTO", "POSTCARD", "USER"] = Field(
-        description="신고 대상 유형"
-    )
+    target_type: Literal["PHOTO", "POSTCARD", "USER"] = Field(description="신고 대상 유형")
     target_id: UUID = Field(description="신고 대상 고유 ID")
     reason_code: Literal[
         "INAPPROPRIATE_PHOTO",
@@ -462,7 +467,9 @@ class NotificationSettingsData(BaseModel):
 class UpdateNotificationSettingsRequest(BaseModel):
     """알림 유형별 수신 설정 변경 요청."""
 
-    validation_enabled: bool | None = Field(default=None, description="사진 검증 결과 알림 수신 여부")
+    validation_enabled: bool | None = Field(
+        default=None, description="사진 검증 결과 알림 수신 여부"
+    )
     match_enabled: bool | None = Field(default=None, description="매칭 성사 알림 수신 여부")
     postcard_enabled: bool | None = Field(default=None, description="엽서 수신 알림 수신 여부")
     search_expired_enabled: bool | None = Field(

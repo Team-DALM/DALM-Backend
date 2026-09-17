@@ -50,9 +50,7 @@ class UserTerm(Base):
     __tablename__ = "user_terms"
     __table_args__ = (UniqueConstraint("user_id", "term_type", "term_version"),)
 
-    id: Mapped[UUID] = mapped_column(
-        PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4
-    )
+    id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), ForeignKey("users.id"), index=True
     )
@@ -73,12 +71,15 @@ class PhotoStatus(StrEnum):
 
 class Photo(Base):
     __tablename__ = "photos"
+    __table_args__ = (UniqueConstraint("user_id", "checksum"),)
 
     id: Mapped[UUID] = mapped_column(PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(
         PostgreSQLUUID(as_uuid=True), ForeignKey("users.id"), index=True
     )
     image_url: Mapped[str] = mapped_column(String(2048))
+    storage_key: Mapped[str | None] = mapped_column(String(500), unique=True)
+    checksum: Mapped[str | None] = mapped_column(String(64))
     ai_title: Mapped[str | None] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(20), index=True)
     registered_date: Mapped[date] = mapped_column(Date, index=True)

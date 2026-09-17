@@ -313,6 +313,22 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /photos/{photo_id}/image:
+    parameters:
+      - $ref: '#/components/parameters/PhotoId'
+    get:
+      tags: [Photos]
+      summary: 사진 이미지 접근
+      description: 소유자 또는 매칭 참여 권한을 확인한 후 짧게 유효한 GCS Signed URL로 이동합니다.
+      operationId: getPhotoImage
+      responses:
+        '307':
+          description: 비공개 사진 Signed URL로 이동
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/PhotoNotFound'
+
   /moments:
     get:
       tags: [Moments]
@@ -1032,8 +1048,8 @@ components:
           $ref: '#/components/schemas/PhotoStatus'
         image_url:
           type: string
-          format: uri
-          description: 만료 시간이 있는 서명 URL
+          format: uri-reference
+          description: 인증 후 Signed URL로 이동하는 안정적인 사진 경로
         thumbnail_url:
           oneOf:
             - type: string

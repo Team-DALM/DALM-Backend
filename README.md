@@ -39,6 +39,8 @@ Flutter 클라이언트에 REST API를 제공하고 인증, 사용자, 사진, A
 - 공통 성공 응답: `data`, `error`
 - 공통 오류 응답: `error.code`, `error.message`, `error.request_id`
 - Refresh Token 회전 및 동일 토큰 재사용 방지
+- 모델 차원에 독립적인 사진 요소별 pgvector 임베딩 저장
+- 최근 7일 활성 사진 후보 조회와 본인·차단 관계 제외
 
 전체 목표 API와 데이터 계약은
 [`docs/openapi/dalm-openapi.yaml`](docs/openapi/dalm-openapi.yaml)을 기준으로 합니다.

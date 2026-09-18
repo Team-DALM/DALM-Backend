@@ -373,6 +373,14 @@ python -m scripts.run_photo_validation_worker
 연동 시에는 `PhotoValidationProvider` 구현만 교체하며, 작업 선점·결과 반영·재시도 계약은
 그대로 유지합니다.
 
+검증을 통과한 사진은 별도 임베딩 작업으로 처리됩니다. Mock 임베딩 생성부터 7일 후보
+탐색과 자동 매칭까지 한 건만 실행하거나 계속 폴링할 수 있습니다.
+
+```bash
+python -m scripts.run_photo_embedding_worker --once
+python -m scripts.run_photo_embedding_worker
+```
+
 현재 인증 테스트는 다음 동작을 검증합니다.
 
 - 정상 Refresh Token으로 새 토큰 쌍 발급

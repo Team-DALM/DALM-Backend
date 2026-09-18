@@ -559,3 +559,15 @@ class UpdateNotificationSettingsRequest(BaseModel):
         description="매칭 탐색 만료 알림 수신 여부",
     )
     system_enabled: bool | None = Field(default=None, description="서비스 공지 알림 수신 여부")
+
+
+class PhotoEmbeddingResultRequest(BaseModel):
+    worker_id: str = Field(min_length=1, max_length=100, description="작업자 식별자")
+    scene: list[float] = Field(min_length=1, description="장면 임베딩")
+    object_action: list[float] = Field(min_length=1, description="객체·행동 임베딩")
+    composition: list[float] = Field(min_length=1, description="구도 임베딩")
+    color: list[float] = Field(min_length=1, description="색감 임베딩")
+    mood: list[float] = Field(min_length=1, description="분위기 임베딩")
+    labels: dict[str, list[str]] = Field(default_factory=dict, description="설명용 특징 라벨")
+    model_name: str = Field(min_length=1, max_length=100, description="임베딩 모델 이름")
+    model_version: str = Field(min_length=1, max_length=50, description="임베딩 모델 버전")

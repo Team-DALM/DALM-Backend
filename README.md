@@ -356,6 +356,21 @@ pytest -q
 python -m scripts.expire_searching_photos
 ```
 
+AI 모델이 준비되기 전에는 Mock 사진 검증 Worker로 비동기 계약을 검증할 수 있습니다.
+API 서버와 저장소를 실행한 뒤, `.env.example`의 Worker 환경변수를 설정하고 실행합니다.
+
+```bash
+# 대기 작업 한 건만 처리
+python -m scripts.run_photo_validation_worker --once
+
+# 대기열을 계속 폴링
+python -m scripts.run_photo_validation_worker
+```
+
+`DALM_MOCK_VALIDATION_RESULT`는 `PASSED`, `REJECTED`, `ERROR` 중 하나입니다. 실제 AI
+연동 시에는 `PhotoValidationProvider` 구현만 교체하며, 작업 선점·결과 반영·재시도 계약은
+그대로 유지합니다.
+
 현재 인증 테스트는 다음 동작을 검증합니다.
 
 - 정상 Refresh Token으로 새 토큰 쌍 발급

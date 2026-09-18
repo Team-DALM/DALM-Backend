@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
@@ -556,6 +556,7 @@ class PostcardRepository:
         elif last_sender_id == user_id:
             raise ApiError(409, "POSTCARD_REPLY_NOT_RECEIVED", "상대의 답 엽서를 기다리고 있습니다.")
         postcard = Postcard(
+            id=uuid4(),
             match_id=match_id,
             sender_id=user_id,
             receiver_id=receiver_id,
@@ -563,6 +564,17 @@ class PostcardRepository:
             idempotency_key=idempotency_key,
         )
         self._session.add(postcard)
+        template = TEMPLATES["POSTCARD_RECEIVED"]
+        self._session.add(
+            Notification(
+                user_id=receiver_id,
+                type="POSTCARD_RECEIVED",
+                title=template.title,
+                message=template.message,
+                target_type=template.target_type,
+                target_id=postcard.id,
+            )
+        )
         try:
             await self._session.commit()
         except IntegrityError as exc:

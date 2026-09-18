@@ -5,7 +5,8 @@ from uuid import UUID
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Photo
+from app.models import Notification, Photo
+from app.notifications import TEMPLATES
 
 
 class ExpirationStore(Protocol):
@@ -26,11 +27,23 @@ class SqlExpirationStore:
                 Photo.deleted_at.is_(None),
             )
             .values(status="EXPIRED")
-            .returning(Photo.id)
+            .returning(Photo.id, Photo.user_id)
         )
-        photo_ids = list(result.scalars().all())
+        rows = list(result.all())
+        template = TEMPLATES["SEARCH_EXPIRED"]
+        self._session.add_all(
+            Notification(
+                user_id=user_id,
+                type="SEARCH_EXPIRED",
+                title=template.title,
+                message=template.message,
+                target_type=template.target_type,
+                target_id=photo_id,
+            )
+            for photo_id, user_id in rows
+        )
         await self._session.commit()
-        return photo_ids
+        return [photo_id for photo_id, _ in rows]
 
 
 async def expire_searching_photos(

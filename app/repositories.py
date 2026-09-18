@@ -16,6 +16,7 @@ from app.models import (
     Notification,
     NotificationSetting,
     Photo,
+    PhotoEmbeddingJob,
     PhotoValidation,
     Postcard,
     Report,
@@ -1242,6 +1243,7 @@ class PhotoValidationRepository:
             photo.search_expires_at = photo.registered_at + timedelta(days=7)
             photo.rejection_code = None
             photo.rejection_message = None
+            self._session.add(PhotoEmbeddingJob(photo_id=photo.id, status="PENDING"))
         else:
             photo.status = "REJECTED"
             photo.rejection_code = rejection_code

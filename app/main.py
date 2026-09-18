@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.apple import AppleClient
 from app.auth import AuthService
@@ -31,10 +32,12 @@ from app.dependencies import (
     get_postcard_repository,
     get_report_repository,
     get_safety_repository,
+    get_session,
     get_token_service,
     get_user_repository,
     require_access_token,
 )
+from app.embedding_jobs import PhotoEmbeddingJobRepository, orchestrate_match
 from app.errors import (
     ApiError,
     api_error_handler,
@@ -43,6 +46,7 @@ from app.errors import (
 )
 from app.kakao import KakaoClient
 from app.models import Notification
+from app.photo_embeddings import PhotoEmbeddingData
 from app.photo_storage import GcsPhotoStorage, PhotoStorage, UnconfiguredPhotoStorage
 from app.photo_upload import process_photo
 from app.repositories import (
@@ -81,6 +85,7 @@ from app.schemas import (
     NotificationData,
     NotificationListData,
     NotificationSettingsData,
+    PhotoEmbeddingResultRequest,
     PhotoRejection,
     PhotoValidationClaimData,
     PhotoValidationClaimRequest,
@@ -716,6 +721,73 @@ def create_app(
                 next_attempt_at=result.next_attempt_at,
             )
         )
+
+    @app.post(
+        "/internal/v1/photo-embeddings/claim", tags=["Internal"],
+        summary="사진 임베딩 작업 선점", description="대기 중인 임베딩 작업 하나를 선점합니다."
+    )
+    async def claim_photo_embedding(
+        body: PhotoValidationClaimRequest,
+        session: Annotated[AsyncSession, Depends(get_session)],
+        storage: Annotated[PhotoStorage, Depends(get_photo_storage)],
+        internal_key: Annotated[str | None, Header(alias="X-DALM-Internal-Key")] = None,
+    ):
+        verify_internal_key(internal_key)
+        claimed = await PhotoEmbeddingJobRepository(session).claim_next(
+            worker_id=body.worker_id, lease_seconds=resolved_settings.validation_lease_seconds
+        )
+        if claimed is None:
+            return ApiResponse(data={"job": None})
+        job, photo = claimed
+        return ApiResponse(data={"job": {
+            "job_id": job.id, "photo_id": photo.id,
+            "image_url": await storage.signed_url(
+                photo.storage_key, resolved_settings.photo_signed_url_ttl_seconds
+            ),
+            "attempt": job.attempt_count,
+        }})
+
+    @app.post(
+        "/internal/v1/photo-embeddings/{job_id}/result", tags=["Internal"],
+        summary="사진 임베딩 결과 반영",
+        description="임베딩을 저장하고 후보 탐색과 자동 매칭을 실행합니다."
+    )
+    async def apply_photo_embedding_result(
+        job_id: UUID,
+        body: PhotoEmbeddingResultRequest,
+        session: Annotated[AsyncSession, Depends(get_session)],
+        internal_key: Annotated[str | None, Header(alias="X-DALM-Internal-Key")] = None,
+    ):
+        verify_internal_key(internal_key)
+        payload = body.model_dump(exclude={"worker_id"})
+        embedding = PhotoEmbeddingData(**{key: tuple(value) if key not in {
+            "labels", "model_name", "model_version"
+        } else value for key, value in payload.items()})
+        job = await PhotoEmbeddingJobRepository(session).apply_result(
+            job_id, worker_id=body.worker_id, embedding=embedding
+        )
+        match_id = await orchestrate_match(session, job.photo_id)
+        return ApiResponse(data={"job_id": job.id, "photo_id": job.photo_id,
+                                 "status": job.status, "match_id": match_id})
+
+    @app.post(
+        "/internal/v1/photo-embeddings/{job_id}/failure", tags=["Internal"],
+        summary="사진 임베딩 실패 반영", description="실패를 기록하고 재시도 여부를 결정합니다."
+    )
+    async def fail_photo_embedding(
+        job_id: UUID,
+        body: PhotoValidationFailureRequest,
+        session: Annotated[AsyncSession, Depends(get_session)],
+        internal_key: Annotated[str | None, Header(alias="X-DALM-Internal-Key")] = None,
+    ):
+        verify_internal_key(internal_key)
+        job = await PhotoEmbeddingJobRepository(session).record_failure(
+            job_id, **body.model_dump(), max_attempts=resolved_settings.validation_max_attempts,
+            retry_base_seconds=resolved_settings.validation_retry_base_seconds,
+        )
+        return ApiResponse(data={"job_id": job.id, "status": job.status,
+                                 "attempt_count": job.attempt_count,
+                                 "next_attempt_at": job.next_attempt_at})
 
     @app.get(
         "/v1/photos/{photo_id}/image",

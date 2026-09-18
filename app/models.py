@@ -2,6 +2,7 @@ from datetime import date, datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -15,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PostgreSQLUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -131,6 +133,28 @@ class PhotoValidation(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PhotoEmbedding(Base):
+    __tablename__ = "photo_embeddings"
+
+    id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), primary_key=True, default=uuid4
+    )
+    photo_id: Mapped[UUID] = mapped_column(
+        PostgreSQLUUID(as_uuid=True), ForeignKey("photos.id"), unique=True, index=True
+    )
+    scene_vector: Mapped[list[float]] = mapped_column(VECTOR(), nullable=False)
+    object_action_vector: Mapped[list[float]] = mapped_column(VECTOR(), nullable=False)
+    composition_vector: Mapped[list[float]] = mapped_column(VECTOR(), nullable=False)
+    color_vector: Mapped[list[float]] = mapped_column(VECTOR(), nullable=False)
+    mood_vector: Mapped[list[float]] = mapped_column(VECTOR(), nullable=False)
+    labels: Mapped[dict[str, list[str]] | None] = mapped_column(JSONB)
+    model_name: Mapped[str] = mapped_column(String(100))
+    model_version: Mapped[str] = mapped_column(String(50))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
 
 
 class Match(Base):

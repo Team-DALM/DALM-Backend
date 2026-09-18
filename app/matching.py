@@ -7,7 +7,8 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import ApiError
-from app.models import Block, Match, MatchParticipant, Photo
+from app.models import Block, Match, MatchParticipant, Notification, Photo
+from app.notifications import TEMPLATES
 
 
 class MatchFinalizationStore(Protocol):
@@ -84,6 +85,17 @@ class SqlMatchFinalizationStore:
             )
             for photo in photos:
                 photo.status = "MATCHED"
+                template = TEMPLATES["MATCHED"]
+                self._session.add(
+                    Notification(
+                        user_id=photo.user_id,
+                        type="MATCHED",
+                        title=template.title,
+                        message=template.message,
+                        target_type=template.target_type,
+                        target_id=match_id,
+                    )
+                )
             await self._session.commit()
             return match_id
         except (ApiError, SQLAlchemyError):

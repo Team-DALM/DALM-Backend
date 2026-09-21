@@ -332,6 +332,9 @@ class MomentListData(BaseModel):
     """상태별 순간 목록 조회 결과."""
 
     items: list[MomentPhoto] = Field(description="현재 페이지의 순간 목록")
+    searching_count: int = Field(ge=0, description="전체 탐색 중 순간 수")
+    matched_count: int = Field(ge=0, description="전체 발견(매칭 완료) 순간 수")
+    expired_count: int = Field(ge=0, description="전체 지나간(탐색 만료) 순간 수")
     next_cursor: str | None = Field(description="다음 페이지 조회용 커서. 없으면 null")
     has_next: bool = Field(description="다음 페이지 존재 여부")
 

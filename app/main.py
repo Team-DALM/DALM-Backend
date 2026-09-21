@@ -942,13 +942,20 @@ def create_app(
         size: Annotated[int, Query(ge=1, le=50)] = 20,
         cursor: str | None = None,
     ) -> ApiResponse[MomentListData]:
+        user_id = authenticated_user_id(claims)
+        today = datetime.now(ZoneInfo("Asia/Seoul")).date()
         photos = await repository.list_moments(
-            authenticated_user_id(claims),
+            user_id,
             status=photo_status,
-            today=datetime.now(ZoneInfo("Asia/Seoul")).date(),
+            today=today,
             exclude_today=exclude_today,
             size=size,
             cursor=decode_cursor(cursor),
+        )
+        counts = await repository.count_moments(
+            user_id,
+            today=today,
+            exclude_today=exclude_today,
         )
         has_next = len(photos) > size
         page = photos[:size]
@@ -977,6 +984,9 @@ def create_app(
                     )
                     for photo in page
                 ],
+                searching_count=counts.searching,
+                matched_count=counts.matched,
+                expired_count=counts.expired,
                 next_cursor=next_cursor,
                 has_next=has_next,
             )

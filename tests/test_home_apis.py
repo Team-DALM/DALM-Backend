@@ -13,6 +13,7 @@ from app.repositories import (
     HomeRepository,
     MatchCardRow,
     MatchDetailRow,
+    MomentCounts,
     MomentRow,
     resolve_postcard_permission,
 )
@@ -86,6 +87,10 @@ class FakeHomeRepository:
             )
             for item in self.searching_photos
         ]
+
+    async def count_moments(self, user_id, **kwargs):
+        assert user_id == USER_ID
+        return MomentCounts(searching=3, matched=2, expired=3)
 
     async def get_next_unviewed_match(self, user_id, today):
         assert user_id == USER_ID
@@ -243,6 +248,9 @@ def test_searching_moments_exclude_today_and_paginate() -> None:
     assert data["items"][0]["remaining_days"] == 7
     assert data["has_next"] is True
     assert data["next_cursor"] is not None
+    assert data["searching_count"] == 3
+    assert data["matched_count"] == 2
+    assert data["expired_count"] == 3
     assert repository.list_args["exclude_today"] is True
     assert repository.list_args["size"] == 2
 

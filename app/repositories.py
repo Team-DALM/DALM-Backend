@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, delete, exists, func, or_, select, update
+from sqlalchemy import and_, case, delete, exists, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -181,6 +181,13 @@ class MomentRow:
     matched_at: datetime | None
     hidden: bool
     postcard_permission: str | None
+
+
+@dataclass(frozen=True)
+class MomentCounts:
+    searching: int
+    matched: int
+    expired: int
 
 
 @dataclass(frozen=True)
@@ -949,6 +956,36 @@ class HomeRepository:
             )
             for row in rows
         ]
+
+    async def count_moments(
+        self,
+        user_id: UUID,
+        *,
+        today: date,
+        exclude_today: bool,
+    ) -> MomentCounts:
+        participant = aliased(MatchParticipant)
+        query = (
+            select(
+                func.count(case((Photo.status == "SEARCHING", 1))),
+                func.count(case((Photo.status == "MATCHED", 1))),
+                func.count(case((Photo.status == "EXPIRED", 1))),
+            )
+            .select_from(Photo)
+            .outerjoin(
+                participant,
+                and_(participant.photo_id == Photo.id, participant.user_id == user_id),
+            )
+            .where(
+                Photo.user_id == user_id,
+                Photo.deleted_at.is_(None),
+                participant.hidden_at.is_(None),
+            )
+        )
+        if exclude_today:
+            query = query.where(Photo.registered_date != today)
+        row = (await self._session.execute(query)).one()
+        return MomentCounts(searching=int(row[0]), matched=int(row[1]), expired=int(row[2]))
 
     async def get_match_detail(self, user_id: UUID, match_id: UUID) -> MatchDetailRow | None:
         mine = aliased(MatchParticipant)

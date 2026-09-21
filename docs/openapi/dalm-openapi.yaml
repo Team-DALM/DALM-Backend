@@ -1208,12 +1208,24 @@ components:
 
     MomentListData:
       type: object
-      required: [items, has_next]
+      required: [items, searching_count, matched_count, expired_count, has_next]
       properties:
         items:
           type: array
           items:
             $ref: '#/components/schemas/MomentPhoto'
+        searching_count:
+          type: integer
+          minimum: 0
+          description: 전체 탐색 중 순간 수. 페이지네이션과 무관하며 exclude_today 조건은 적용됩니다.
+        matched_count:
+          type: integer
+          minimum: 0
+          description: 전체 발견(매칭 완료) 순간 수. 페이지네이션과 무관하며 exclude_today 조건은 적용됩니다.
+        expired_count:
+          type: integer
+          minimum: 0
+          description: 전체 지나간(탐색 만료) 순간 수. 페이지네이션과 무관하며 exclude_today 조건은 적용됩니다.
         next_cursor:
           oneOf:
             - type: string

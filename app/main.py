@@ -912,7 +912,7 @@ def create_app(
         status_code=status.HTTP_204_NO_CONTENT,
         tags=["Photos"],
         summary="사진 삭제",
-        description="매칭 탐색 중이거나 만료된 본인 사진을 소프트 삭제합니다.",
+        description="검증 중, 검증 실패, 매칭 탐색 중이거나 만료된 본인 사진을 소프트 삭제합니다.",
     )
     async def delete_photo(
         photo_id: UUID,

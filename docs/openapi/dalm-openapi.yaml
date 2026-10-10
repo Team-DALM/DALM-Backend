@@ -297,7 +297,7 @@ paths:
     delete:
       tags: [Photos]
       summary: 매칭 전 사진 삭제
-      description: SEARCHING 또는 EXPIRED 사진만 삭제할 수 있습니다.
+      description: VALIDATING, REJECTED, SEARCHING 또는 EXPIRED 상태의 본인 사진을 삭제할 수 있습니다.
       operationId: deletePhoto
       responses:
         '204':

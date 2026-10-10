@@ -689,7 +689,27 @@ class HomeRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
+    async def expire_stale_validations(self, user_id: UUID) -> None:
+        # Recover even when the validation worker is unavailable. Conditional updates
+        # preserve results committed by a worker before this statement obtains its lock.
+        result = await self._session.execute(
+            update(Photo)
+            .where(
+                Photo.user_id == user_id,
+                Photo.status == "VALIDATING",
+                Photo.registered_at <= datetime.now(UTC) - timedelta(minutes=15),
+            )
+            .values(
+                status="REJECTED",
+                rejection_code=None,
+                rejection_message="사진 확인이 지연됐습니다. 다시 등록해주세요.",
+            )
+        )
+        if result.rowcount:
+            await self._session.commit()
+
     async def get_today_photo(self, user_id: UUID, today: date) -> Photo | None:
+        await self.expire_stale_validations(user_id)
         result = await self._session.execute(
             select(Photo)
             .where(Photo.user_id == user_id, Photo.registered_date == today)
@@ -720,6 +740,8 @@ class HomeRepository:
         if user.onboarding_required:
             raise ApiError(409, "ONBOARDING_REQUIRED", "온보딩을 먼저 완료해주세요.")
 
+        await self.expire_stale_validations(user_id)
+
         active_photo = (
             await self._session.execute(
                 select(Photo.id).where(
@@ -731,9 +753,24 @@ class HomeRepository:
         ).scalar_one_or_none()
         if active_photo is not None:
             raise ApiError(409, "TODAY_PHOTO_ALREADY_EXISTS", "오늘 등록한 사진이 이미 있습니다.")
+        # The historical row retains its image, but must release the unique
+        # checksum so a failed or cancelled upload can be submitted again.
+        await self._session.execute(
+            update(Photo)
+            .where(
+                Photo.user_id == user_id,
+                Photo.checksum == checksum,
+                Photo.status.in_({"REJECTED", "DELETED"}),
+            )
+            .values(checksum=None)
+        )
         duplicate = (
             await self._session.execute(
-                select(Photo.id).where(Photo.user_id == user_id, Photo.checksum == checksum)
+                select(Photo.id).where(
+                    Photo.user_id == user_id,
+                    Photo.checksum == checksum,
+                    Photo.status.not_in({"REJECTED", "DELETED"}),
+                )
             )
         ).scalar_one_or_none()
         if duplicate is not None:
@@ -790,12 +827,16 @@ class HomeRepository:
         return shared_match is not None
 
     async def delete_photo(self, user_id: UUID, photo_id: UUID) -> None:
-        photo = await self.get_photo(photo_id)
+        photo = (
+            await self._session.execute(
+                select(Photo).where(Photo.id == photo_id).with_for_update()
+            )
+        ).scalar_one_or_none()
         if photo is None or photo.status == "DELETED":
             raise ApiError(404, "PHOTO_NOT_FOUND", "사진을 찾을 수 없습니다.")
         if photo.user_id != user_id:
             raise ApiError(403, "PHOTO_NOT_OWNED", "본인의 사진만 삭제할 수 있습니다.")
-        if photo.status not in {"SEARCHING", "EXPIRED"}:
+        if photo.status not in {"VALIDATING", "REJECTED", "SEARCHING", "EXPIRED"}:
             code = (
                 "PHOTO_ALREADY_MATCHED" if photo.status == "MATCHED" else "PHOTO_DELETE_NOT_ALLOWED"
             )

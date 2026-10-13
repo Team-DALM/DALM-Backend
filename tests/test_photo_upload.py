@@ -74,12 +74,12 @@ def image_bytes(width=80, height=100, *, format="JPEG", exif=None):
     return output.getvalue()
 
 
-def make_client(repository=None, storage=None):
+def make_client(repository=None, storage=None, settings=SETTINGS):
     dependency = FakeDependency()
     repository = repository or FakeRepository()
     storage = storage or FakeStorage()
     app = create_app(
-        SETTINGS,
+        settings,
         database=dependency,
         cache=dependency,
         refresh_store=InMemoryRefreshTokenStore(),
@@ -191,3 +191,18 @@ def test_photo_image_redirect_requires_access_and_uses_short_lived_url():
     assert response.status_code == 307
     assert response.headers["location"] == "https://storage.example/signed"
     assert storage.signed == ("photos/user/photo/original.webp", 900)
+
+
+def test_inline_mock_upload_returns_searching_without_worker():
+    from dataclasses import replace
+
+    client, token, repository, _ = make_client(
+        settings=replace(SETTINGS, mock_validation_on_upload=True)
+    )
+    response = client.post(
+        "/v1/photos", headers=auth(token),
+        files={"image": ("moment.jpg", image_bytes(), "image/jpeg")},
+    )
+    assert response.status_code == 202
+    assert response.json()["data"]["status"] == "SEARCHING"
+    assert repository.created["mock_passed"] is True

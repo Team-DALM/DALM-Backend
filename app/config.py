@@ -22,7 +22,7 @@ class Settings:
     photo_min_height: int = 1000
     photo_signed_url_ttl_seconds: int = 900
     internal_api_key: str | None = None
-    mock_validation_worker_enabled: bool = False
+    mock_validation_on_upload: bool = False
     validation_max_attempts: int = 3
     validation_retry_base_seconds: int = 30
     validation_lease_seconds: int = 300
@@ -60,7 +60,7 @@ class Settings:
             photo_min_height=int(os.getenv("DALM_PHOTO_MIN_HEIGHT", "1000")),
             photo_signed_url_ttl_seconds=int(os.getenv("DALM_PHOTO_SIGNED_URL_TTL_SECONDS", "900")),
             internal_api_key=os.getenv("DALM_INTERNAL_API_KEY", "").strip() or None,
-            mock_validation_worker_enabled=os.getenv("DALM_MOCK_VALIDATION_WORKER_ENABLED", "false").lower() == "true",
+            mock_validation_on_upload=os.getenv("DALM_MOCK_VALIDATION_ON_UPLOAD", "false").lower() == "true",
             validation_max_attempts=int(os.getenv("DALM_VALIDATION_MAX_ATTEMPTS", "3")),
             validation_retry_base_seconds=int(
                 os.getenv("DALM_VALIDATION_RETRY_BASE_SECONDS", "30")

@@ -11,33 +11,16 @@ from scripts import run_photo_validation_worker as worker
 from tests.test_home_apis import FakeDependency
 
 
-def test_api_starts_and_cancels_enabled_worker(monkeypatch):
-    events = []
-
-    async def run(*, once):
-        assert once is False
-        events.append("started")
-        try:
-            await asyncio.Event().wait()
-        finally:
-            events.append("stopped")
-
+def test_inline_mock_api_does_not_start_polling_worker(monkeypatch):
+    run = AsyncMock()
     monkeypatch.setattr(worker, "run", run)
     settings = Settings(
         jwt_secret="test-secret-that-is-at-least-32-characters",
-        internal_api_key="internal-test-key", mock_validation_worker_enabled=True,
+        mock_validation_on_upload=True,
     )
     with TestClient(create_app(settings, database=FakeDependency(), cache=FakeDependency())) as client:
         assert client.get("/health").status_code == 200
-        assert events == ["started"]
-    assert events == ["started", "stopped"]
-
-
-def test_mock_worker_requires_internal_auth():
-    with pytest.raises(RuntimeError, match="DALM_INTERNAL_API_KEY"):
-        create_app(Settings(jwt_secret="test-secret-that-is-at-least-32-characters",
-                            mock_validation_worker_enabled=True),
-                   database=FakeDependency(), cache=FakeDependency())
+    run.assert_not_called()
 
 
 def test_worker_retries_http_failure_and_closes_on_cancel(monkeypatch):

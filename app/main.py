@@ -169,25 +169,13 @@ def create_app(
         else UnconfiguredPhotoStorage()
     )
 
-    if resolved_settings.mock_validation_worker_enabled and not resolved_settings.internal_api_key:
-        raise RuntimeError("Mock validation worker requires DALM_INTERNAL_API_KEY")
-
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.database = resolved_database
         app.state.cache = resolved_cache
-        worker_task = None
-        if resolved_settings.mock_validation_worker_enabled:
-            from scripts.run_photo_validation_worker import run
-
-            worker_task = asyncio.create_task(run(once=False), name="mock-photo-validation")
         try:
             yield
         finally:
-            if worker_task is not None:
-                worker_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await worker_task
             await asyncio.gather(
                 resolved_database.close(),
                 resolved_cache.close(),
@@ -585,7 +573,7 @@ def create_app(
         summary="오늘 사진 등록",
         description=(
             "4:5 사진을 검증하고 EXIF 정보를 제거한 뒤 비공개 저장소에 저장합니다. "
-            "등록 직후 상태는 VALIDATING입니다."
+            "등록 직후 상태는 VALIDATING이며, mock 즉시 검증 모드에서는 SEARCHING입니다."
         ),
     )
     async def create_photo(
@@ -615,6 +603,7 @@ def create_app(
                 storage_key=storage_key,
                 checksum=processed.checksum,
                 registered_date=datetime.now(ZoneInfo("Asia/Seoul")).date(),
+                mock_passed=resolved_settings.mock_validation_on_upload,
             )
         except Exception:
             with suppress(Exception):
@@ -623,7 +612,7 @@ def create_app(
         return ApiResponse(
             data=CreatePhotoData(
                 photo_id=photo_id,
-                status="VALIDATING",
+                status="SEARCHING" if resolved_settings.mock_validation_on_upload else "VALIDATING",
                 registered_at=photo.registered_at,
             )
         )

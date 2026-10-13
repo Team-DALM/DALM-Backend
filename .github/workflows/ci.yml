@@ -144,18 +144,16 @@ jobs:
           env_vars: |-
             DALM_APPLE_CLIENT_IDS=${{ vars.APPLE_CLIENT_IDS }}
             DALM_GCS_BUCKET=${{ vars.GCS_BUCKET }}
-            DALM_MOCK_VALIDATION_WORKER_ENABLED=true
-            DALM_MOCK_VALIDATION_RESULT=PASSED
-            DALM_API_BASE_URL=http://127.0.0.1:8080
-            DALM_VALIDATION_POLL_SECONDS=5
+            DALM_MOCK_VALIDATION_WORKER_ENABLED=false
+            DALM_MOCK_VALIDATION_ON_UPLOAD=true
           flags: >-
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --port=8080
             --cpu=1
             --memory=512Mi
             --concurrency=40
-            --min-instances=1
-            --no-cpu-throttling
+            --min-instances=0
+            --cpu-throttling
             --max-instances=2
             --allow-unauthenticated
 

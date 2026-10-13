@@ -731,6 +731,7 @@ class HomeRepository:
         storage_key: str,
         checksum: str,
         registered_date: date,
+        mock_passed: bool = False,
     ) -> Photo:
         user = await self._session.get(User, user_id)
         if user is None or user.status != "ACTIVE":
@@ -776,17 +777,34 @@ class HomeRepository:
         if duplicate is not None:
             raise ApiError(409, "DUPLICATE_PHOTO", "이미 등록한 사진입니다.")
 
+        now = datetime.now(UTC)
         photo = Photo(
             id=photo_id,
             user_id=user_id,
             image_url=image_url,
             storage_key=storage_key,
             checksum=checksum,
-            status="VALIDATING",
+            status="SEARCHING" if mock_passed else "VALIDATING",
             registered_date=registered_date,
+            registered_at=now,
+            search_expires_at=now + timedelta(days=7) if mock_passed else None,
         )
         self._session.add(photo)
-        self._session.add(PhotoValidation(photo_id=photo_id, status="PENDING"))
+        if mock_passed:
+            # Commit photo and mock validation together, with no worker/HTTP polling.
+            self._session.add(PhotoValidation(
+                photo_id=photo_id, status="PASSED", model_name="dalm-mock-validator",
+                model_version="1", processing_time_ms=0, attempt_count=1,
+                completed_at=now,
+            ))
+            self._session.add(PhotoEmbeddingJob(photo_id=photo_id, status="PENDING"))
+            template = TEMPLATES["VALIDATION_PASSED"]
+            self._session.add(Notification(
+                user_id=user_id, type="VALIDATION_PASSED", title=template.title,
+                message=template.message, target_type=template.target_type, target_id=photo_id,
+            ))
+        else:
+            self._session.add(PhotoValidation(photo_id=photo_id, status="PENDING"))
         try:
             await self._session.commit()
         except IntegrityError as exc:

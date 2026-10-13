@@ -363,13 +363,14 @@ pytest -q
 python -m scripts.expire_searching_photos
 ```
 
-운영 CI/CD는 `DALM_MOCK_VALIDATION_WORKER_ENABLED=true`와
-`DALM_MOCK_VALIDATION_RESULT=PASSED`를 설정해 API 생명주기에서 Mock 검증 Worker를
-실행합니다. 이미지는 `scripts/`를 포함하며, Worker는 로컬 API를 5초 간격으로 폴링합니다.
-일시적인 HTTP 오류는 재시도하며 종료 시 Worker도 취소합니다. 작업 선점은 기존 DB 잠금으로
-보호됩니다. Cloud Run은 최소 인스턴스 1개와 CPU 상시 할당을 사용하므로 상시 비용이 발생합니다.
-실제 AI 도입 시 mock 플래그와 배포 설정을 함께 변경합니다. 기존 `REJECTED` 사진은
-자동 복구되지 않으므로 새 사진을 등록해야 합니다. 임베딩/매칭 Worker는 별도입니다.
+운영 CI/CD는 `DALM_MOCK_VALIDATION_ON_UPLOAD=true`로 업로드 요청 안에서 mock 검증을
+통과 처리합니다. 사진, PASSED 검증 기록, 임베딩 대기 작업, 검증 통과 알림을 하나의 DB
+트랜잭션으로 저장하며 등록 응답은 `SEARCHING`입니다. 기본값 false에서는 기존 비동기
+`VALIDATING` 계약을 사용합니다. API는 상시 Worker를 시작하지 않습니다.
+Cloud Run은 최소 인스턴스 0개와 요청 기반 CPU 할당으로 유휴 상시 비용을 제거합니다.
+무료 한도 초과 시 요청 처리·저장·다운로드 비용이 발생할 수 있어 프로젝트 전체 0원을
+보장하지는 않습니다. 기존 `REJECTED` 사진은 자동 복구되지 않으므로 재등록해야 합니다.
+임베딩/매칭 Worker는 별도입니다.
 
 AI 모델이 준비되기 전에는 Mock 사진 검증 Worker로 비동기 계약을 검증할 수 있습니다.
 API 서버와 저장소를 실행한 뒤, `.env.example`의 Worker 환경변수를 설정하고 실행합니다.

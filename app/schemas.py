@@ -176,7 +176,7 @@ class CreatePhotoData(BaseModel):
     """사진 등록 및 비동기 검사 접수 결과."""
 
     photo_id: UUID = Field(description="등록된 사진 고유 ID")
-    status: Literal["VALIDATING"] = Field(description="등록 직후 사진 처리 상태")
+    status: Literal["VALIDATING", "SEARCHING"] = Field(description="등록 직후 사진 처리 상태. mock 즉시 검증 모드에서는 SEARCHING")
     registered_at: datetime = Field(description="사진 등록 시각")
 
 

@@ -2,14 +2,19 @@
 
 import argparse
 import asyncio
+import logging
 import os
 import socket
+
+import httpx
 
 from app.ai_validation_worker import (
     HttpValidationBackend,
     create_mock_validation_provider,
     run_validation_once,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
@@ -19,7 +24,7 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run(*, once: bool) -> None:
-    base_url = os.getenv("DALM_API_BASE_URL", "http://localhost:8000")
+    base_url = os.getenv("DALM_API_BASE_URL", f"http://127.0.0.1:{os.getenv('PORT', '8000')}")
     worker_id = os.getenv("DALM_VALIDATION_WORKER_ID", f"mock-{socket.gethostname()}")
     mode = os.getenv("DALM_MOCK_VALIDATION_RESULT", "PASSED")
     poll_seconds = float(os.getenv("DALM_VALIDATION_POLL_SECONDS", "5"))
@@ -35,9 +40,21 @@ async def run(*, once: bool) -> None:
         provider = create_mock_validation_provider(mode)
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
+    logger.warning("Mock validation worker started (mode=%s)", mode)
     try:
         while True:
-            processed = await run_validation_once(backend, provider, worker_id=worker_id)
+            try:
+                processed = await run_validation_once(backend, provider, worker_id=worker_id)
+            except httpx.HTTPError as exc:
+                # API startup, transient outages and expired leases must not stop polling.
+                # Do not log exception text: download errors can contain signed URLs.
+                logger.warning("Mock validation worker request failed (%s)", type(exc).__name__)
+                if once:
+                    raise
+                await asyncio.sleep(poll_seconds)
+                continue
+            if processed:
+                logger.info("Mock validation worker processed a job (mode=%s)", mode)
             if once:
                 print(f"processed_job={str(processed).lower()}")
                 return

@@ -701,7 +701,7 @@ class HomeRepository:
             )
             .values(
                 status="REJECTED",
-                rejection_code=None,
+                rejection_code="VALIDATION_TIMEOUT",
                 rejection_message="사진 확인이 지연됐습니다. 다시 등록해주세요.",
             )
         )
@@ -1402,7 +1402,7 @@ class PhotoValidationRepository:
             ).scalar_one()
             if photo.status == "VALIDATING":
                 photo.status = "REJECTED"
-                photo.rejection_code = None
+                photo.rejection_code = "VALIDATION_FAILED"
                 photo.rejection_message = "사진을 확인하지 못했습니다. 잠시 후 다시 등록해주세요."
                 template = TEMPLATES["PHOTO_REJECTED"]
                 self._session.add(

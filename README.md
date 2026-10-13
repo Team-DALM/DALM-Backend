@@ -144,6 +144,11 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 
 사진 업로드를 사용하려면 `asia-northeast3`의 비공개 GCS 버킷을 준비하고 Cloud Run 런타임
 서비스 계정에 객체 생성·조회·삭제 권한과 Signed URL 생성을 위한 `signBlob` 권한을 부여합니다.
+IAM Service Account Credentials API를 활성화하고 런타임 계정이 자기 자신에 대해
+`iam.serviceAccounts.signBlob` 권한을 갖도록 설정합니다. URL 서명 토큰에는
+`cloud-platform` scope를 사용합니다(객체 요청용 토큰과 분리).
+검증 시간 초과·최종 실패는 각각 `VALIDATION_TIMEOUT`·`VALIDATION_FAILED` 코드로
+거절 사유를 반환하며, 기존 코드 누락 데이터는 조회 시 `VALIDATION_FAILED`로 보완합니다.
 AI 검증 결과 콜백을 사용하려면 `DALM_INTERNAL_API_KEY`를 별도 Secret Manager 시크릿으로
 주입하고 호출 측도 같은 값을 `X-DALM-Internal-Key` 헤더로 보내야 합니다.
 

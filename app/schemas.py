@@ -159,6 +159,18 @@ class PhotoRejection(BaseModel):
     code: str = Field(description="프론트 분기 처리용 거절 코드")
     message: str = Field(description="사용자에게 표시할 거절 사유")
 
+    @classmethod
+    def from_photo_status(
+        cls, status: str, code: str | None, message: str | None
+    ) -> "PhotoRejection | None":
+        if status != "REJECTED":
+            return None
+        # Older timeout/worker failures stored a message without a code.
+        return cls(
+            code=code or "VALIDATION_FAILED",
+            message=message or "사진을 확인하지 못했습니다. 잠시 후 다시 등록해주세요.",
+        )
+
 
 class CreatePhotoData(BaseModel):
     """사진 등록 및 비동기 검사 접수 결과."""

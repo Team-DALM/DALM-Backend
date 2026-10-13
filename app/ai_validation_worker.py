@@ -148,6 +148,7 @@ class HttpValidationBackend:
         timeout_seconds: float = 30,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        internal_api_key = internal_api_key.strip() if internal_api_key else None
         self._internal_headers = (
             {"X-DALM-Internal-Key": internal_api_key} if internal_api_key else {}
         )

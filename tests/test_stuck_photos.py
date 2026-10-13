@@ -53,5 +53,33 @@ def test_stale_recovery_is_scoped_and_conditional():
     assert params["user_id_1"] == user_id
     assert params["status_1"] == "VALIDATING"
     assert params["status"] == "REJECTED"
+    assert params["rejection_code"] == "VALIDATION_TIMEOUT"
+    assert params["rejection_message"]
     assert 899 <= (before - params["registered_at_1"]).total_seconds() <= 901
     session.commit.assert_awaited_once()
+
+
+def test_terminal_validation_failure_stores_rejection_reason():
+    from unittest.mock import Mock
+
+    from app.repositories import PhotoValidationRepository
+
+    validation = SimpleNamespace(
+        status="PROCESSING", worker_id="worker-1", attempt_count=3, photo_id=uuid4()
+    )
+    photo = SimpleNamespace(status="VALIDATING", user_id=uuid4(), id=validation.photo_id)
+    session = SimpleNamespace(
+        execute=AsyncMock(side_effect=[
+            SimpleNamespace(scalar_one_or_none=lambda: validation),
+            SimpleNamespace(scalar_one=lambda: photo),
+        ]),
+        commit=AsyncMock(), add=Mock(),
+    )
+    asyncio.run(PhotoValidationRepository(session).record_failure(
+        uuid4(), error_code="DOWNLOAD_FAILED", error_message=None, retryable=True,
+        worker_id="worker-1", max_attempts=3, retry_base_seconds=30,
+    ))
+    assert validation.status == "FAILED"
+    assert photo.status == "REJECTED"
+    assert photo.rejection_code == "VALIDATION_FAILED"
+    assert photo.rejection_message

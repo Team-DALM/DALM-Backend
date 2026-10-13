@@ -832,12 +832,9 @@ def create_app(
         match = None
         if photo.status == "MATCHED":
             match = await repository.get_match_card_for_photo(user_id, photo.id)
-        rejection = None
-        if photo.status == "REJECTED" and photo.rejection_code and photo.rejection_message:
-            rejection = PhotoRejection(
-                code=photo.rejection_code,
-                message=photo.rejection_message,
-            )
+        rejection = PhotoRejection.from_photo_status(
+            photo.status, photo.rejection_code, photo.rejection_message
+        )
         return ApiResponse(
             data=TodayPhotoData(
                 can_register=photo.status == "REJECTED",
@@ -884,10 +881,8 @@ def create_app(
             if photo.status == "MATCHED"
             else None
         )
-        rejection = (
-            PhotoRejection(code=photo.rejection_code, message=photo.rejection_message)
-            if photo.status == "REJECTED" and photo.rejection_code and photo.rejection_message
-            else None
+        rejection = PhotoRejection.from_photo_status(
+            photo.status, photo.rejection_code, photo.rejection_message
         )
         return ApiResponse(
             data=TodayPhoto(

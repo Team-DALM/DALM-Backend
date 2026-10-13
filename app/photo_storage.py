@@ -1,12 +1,18 @@
 import asyncio
+import logging
 from datetime import timedelta
 from typing import Protocol
 
 from google.api_core.exceptions import GoogleAPIError, NotFound, PreconditionFailed
+from google.auth.credentials import Scoped
+from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import Request
 from google.cloud import storage
 
 from app.errors import ApiError
+
+logger = logging.getLogger(__name__)
+SIGNING_SCOPES = ("https://www.googleapis.com/auth/cloud-platform",)
 
 
 class PhotoStorage(Protocol):
@@ -79,6 +85,10 @@ class GcsPhotoStorage:
             credentials = self._client._credentials
             kwargs = {}
             if not hasattr(credentials, "sign_bytes"):
+                # Storage client credentials have storage-only scopes. IAM signing
+                # needs cloud-platform; keep its token separate from storage requests.
+                if isinstance(credentials, Scoped):
+                    credentials = credentials.with_scopes(SIGNING_SCOPES)
                 credentials.refresh(Request())
                 service_account_email = getattr(credentials, "service_account_email", None)
                 if service_account_email:
@@ -95,7 +105,8 @@ class GcsPhotoStorage:
 
         try:
             return await asyncio.to_thread(generate)
-        except (GoogleAPIError, AttributeError, ValueError) as exc:
+        except (GoogleAPIError, GoogleAuthError, AttributeError, ValueError) as exc:
+            logger.warning("Photo URL signing failed (%s)", type(exc).__name__)
             raise ApiError(
                 503, "PHOTO_STORAGE_UNAVAILABLE", "사진 저장소를 사용할 수 없습니다."
             ) from exc

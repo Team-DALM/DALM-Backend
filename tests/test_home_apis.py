@@ -437,3 +437,20 @@ def test_match_visibility_can_hide_and_restore() -> None:
     assert hidden.json()["data"]["hidden"] is True
     assert restored.json()["data"]["hidden"] is False
     assert repository.visibility is False
+
+
+def test_legacy_rejected_photo_returns_reason_in_today_and_detail():
+    repository = FakeHomeRepository()
+    rejected = photo(
+        user_id=USER_ID, status="REJECTED", rejection_code=None,
+        rejection_message="사진 확인이 지연됐습니다. 다시 등록해주세요.",
+    )
+    repository.today_photo = rejected
+    repository.photos[rejected.id] = rejected
+    client, token = make_client(repository)
+    today = client.get("/v1/photos/today", headers=auth(token)).json()["data"]
+    detail = client.get(f"/v1/photos/{rejected.id}", headers=auth(token)).json()["data"]
+    expected = {"code": "VALIDATION_FAILED", "message": rejected.rejection_message}
+    assert today["can_register"] is True
+    assert today["photo"]["rejection"] == expected
+    assert detail["rejection"] == expected

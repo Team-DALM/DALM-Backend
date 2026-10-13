@@ -57,3 +57,25 @@ def test_worker_retries_http_failure_and_closes_on_cancel(monkeypatch):
         asyncio.run(worker.run(once=False))
     assert len(attempts) == 2
     backend.close.assert_awaited_once()
+
+
+def test_internal_key_secret_newline_is_normalized(monkeypatch):
+    from app.ai_validation_worker import HttpValidationBackend
+
+    monkeypatch.setenv("DALM_INTERNAL_API_KEY", "internal-test-key\n")
+    assert Settings.from_env().internal_api_key == "internal-test-key"
+    requests = []
+
+    def handle(request):
+        requests.append(request)
+        return httpx.Response(200, json={"data": {"job": None}})
+
+    async def exercise():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle),
+                                    base_url="http://localhost") as client:
+            backend = HttpValidationBackend("http://localhost",
+                                            internal_api_key="internal-test-key\n", client=client)
+            assert await backend.claim("test-worker") is None
+
+    asyncio.run(exercise())
+    assert requests[0].headers["X-DALM-Internal-Key"] == "internal-test-key"

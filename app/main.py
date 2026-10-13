@@ -169,13 +169,25 @@ def create_app(
         else UnconfiguredPhotoStorage()
     )
 
+    if resolved_settings.mock_validation_worker_enabled and not resolved_settings.internal_api_key:
+        raise RuntimeError("Mock validation worker requires DALM_INTERNAL_API_KEY")
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.database = resolved_database
         app.state.cache = resolved_cache
+        worker_task = None
+        if resolved_settings.mock_validation_worker_enabled:
+            from scripts.run_photo_validation_worker import run
+
+            worker_task = asyncio.create_task(run(once=False), name="mock-photo-validation")
         try:
             yield
         finally:
+            if worker_task is not None:
+                worker_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await worker_task
             await asyncio.gather(
                 resolved_database.close(),
                 resolved_cache.close(),

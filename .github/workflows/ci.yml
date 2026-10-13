@@ -24,7 +24,7 @@ jobs:
         run: pip install -e '.[dev]'
 
       - name: Ruff
-        run: ruff check app tests alembic
+        run: ruff check app tests alembic scripts
 
       - name: Pytest
         env:
@@ -32,7 +32,7 @@ jobs:
         run: pytest -q
 
       - name: Compile Python sources
-        run: python -m compileall -q app alembic tests
+        run: python -m compileall -q app alembic tests scripts
 
       - name: Validate Alembic migrations
         env:
@@ -53,7 +53,9 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Build production image
-        run: docker build --tag dalm-api:${{ github.sha }} .
+        run: |
+          docker build --tag dalm-api:${{ github.sha }} .
+          docker run --rm --entrypoint python dalm-api:${{ github.sha }} -m scripts.run_photo_validation_worker --help
 
   deploy:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -142,13 +144,18 @@ jobs:
           env_vars: |-
             DALM_APPLE_CLIENT_IDS=${{ vars.APPLE_CLIENT_IDS }}
             DALM_GCS_BUCKET=${{ vars.GCS_BUCKET }}
+            DALM_MOCK_VALIDATION_WORKER_ENABLED=true
+            DALM_MOCK_VALIDATION_RESULT=PASSED
+            DALM_API_BASE_URL=http://127.0.0.1:8080
+            DALM_VALIDATION_POLL_SECONDS=5
           flags: >-
             --service-account=${{ env.RUNTIME_SERVICE_ACCOUNT }}
             --port=8080
             --cpu=1
             --memory=512Mi
             --concurrency=40
-            --min-instances=0
+            --min-instances=1
+            --no-cpu-throttling
             --max-instances=2
             --allow-unauthenticated
 

@@ -54,3 +54,19 @@ def test_aws_failures_return_existing_api_error(operation, error):
     with pytest.raises(ApiError) as exc:
         asyncio.run(getattr(storage, operation)(*args[operation]))
     assert exc.value.code == "PHOTO_STORAGE_UNAVAILABLE"
+
+
+
+def test_presigned_url_uses_bucket_region_without_global_endpoint_redirect(monkeypatch):
+    from urllib.parse import parse_qs, urlsplit
+
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "test-session-token")
+    storage = S3PhotoStorage("private-bucket", region="ap-northeast-2")
+    url = urlsplit(asyncio.run(storage.signed_url("photos/key", 60)))
+    assert url.hostname == "private-bucket.s3.ap-northeast-2.amazonaws.com"
+    query = parse_qs(url.query)
+    assert query["X-Amz-Algorithm"] == ["AWS4-HMAC-SHA256"]
+    assert "/ap-northeast-2/s3/aws4_request" in query["X-Amz-Credential"][0]
+    assert query["X-Amz-Security-Token"] == ["test-session-token"]

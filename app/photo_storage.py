@@ -121,7 +121,9 @@ class S3PhotoStorage:
     def __init__(self, bucket_name: str, *, region: str, client=None) -> None:
         self._bucket = bucket_name
         self._client = client or boto3.client(
-            "s3", region_name=region, config=Config(signature_version="s3v4")
+            "s3",
+            region_name=region,
+            config=Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
         )
 
     @staticmethod

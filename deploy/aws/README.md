@@ -138,6 +138,8 @@ AWS 근거: [조건부 객체 쓰기](https://docs.aws.amazon.com/boto3/latest/r
 - SSM의 상태 조회/프로파일 조회는 거부되지만 **실제 Session Manager 세션 접속은 성공**.
   조회 오류만으로 SSH를 개방할 필요는 없습니다.
 - EC2 bootstrap: Docker/Compose 설치 및 cloud-init 완료 확인.
+- 실제 인스턴스 역할의 S3 업로드/조회/삭제 권한과 서울 리전 presigned GET의 HTTP 200 확인.
+  신규 버킷의 글로벌 엔드포인트 리다이렉트로 발생한 서명 오류를 virtual addressing으로 방지합니다.
 - EIP는 미부착. 조교에게 위 instance ID로 요청해야 합니다.
 - 운영 secret/DB/Redis 및 GCS 객체는 아직 전송하지 않았고 트래픽도 전환하지 않았습니다.
 

@@ -125,23 +125,3 @@ DB를 새로 옮긴 후 쓰기가 발생했다면 단순히 Cloud Run으로 주�
 AWS 근거: [조건부 객체 쓰기](https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_object.html),
 [임시 조회 URL](https://docs.aws.amazon.com/boto3/latest/guide/s3-presigned-urls.html),
 [SSM 인스턴스 권한](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-instance-profile.html).
-
-
-## 2026-10-30 AWS 준비 상태
-
-- EC2: `i-062420af9d8c1258b` (`gachon-20-dalm-api`), 서울, Ubuntu 24.04,
-  t3.small, 암호화 gp3 20GiB, CPU standard, IMDSv2 required/hop limit 2.
-- Instance profile: `SafeInstanceProfile-gachon-20`.
-- Security group: `sg-09e9def218ce09900`; inbound 규칙 없음.
-- S3: `gachon-20-dalm-photos-459600194430`; 서울, ACL 비활성,
-  모든 public access 차단, versioning 활성, SSE-S3.
-- SSM의 상태 조회/프로파일 조회는 거부되지만 **실제 Session Manager 세션 접속은 성공**.
-  조회 오류만으로 SSH를 개방할 필요는 없습니다.
-- EC2 bootstrap: Docker/Compose 설치 및 cloud-init 완료 확인.
-- 실제 인스턴스 역할의 S3 업로드/조회/삭제 권한과 서울 리전 presigned GET의 HTTP 200 확인.
-  신규 버킷의 글로벌 엔드포인트 리다이렉트로 발생한 서명 오류를 virtual addressing으로 방지합니다.
-- EIP는 미부착. 조교에게 위 instance ID로 요청해야 합니다.
-- 운영 secret/DB/Redis 및 GCS 객체는 아직 전송하지 않았고 트래픽도 전환하지 않았습니다.
-
-공유 DB/Redis로 첫 readiness 검사를 하더라도 사용자 API 호출은 아직 하지 않습니다.
-GCS의 기존 객체를 S3로 복사·검증하기 전에는 새 API의 사진 조회를 운영에 노출하지 않습니다.

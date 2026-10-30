@@ -42,7 +42,12 @@ jobs:
       - name: Validate Docker Compose
         env:
           DALM_JWT_SECRET: ci-secret-that-is-at-least-32-characters
-        run: docker compose config --quiet
+        run: |
+          docker compose config --quiet
+          cp deploy/aws/.env.example deploy/aws/.env
+          trap 'rm -f deploy/aws/.env' EXIT
+          docker compose --env-file deploy/aws/.env -f deploy/aws/compose.yaml config --quiet
+          bash -n deploy/aws/deploy.sh
 
   container:
     runs-on: ubuntu-latest

@@ -47,7 +47,12 @@ from app.errors import (
 from app.kakao import KakaoClient
 from app.models import Notification
 from app.photo_embeddings import PhotoEmbeddingData
-from app.photo_storage import GcsPhotoStorage, PhotoStorage, UnconfiguredPhotoStorage
+from app.photo_storage import (
+    GcsPhotoStorage,
+    PhotoStorage,
+    S3PhotoStorage,
+    UnconfiguredPhotoStorage,
+)
 from app.photo_upload import process_photo
 from app.repositories import (
     HomeRepository,
@@ -164,7 +169,9 @@ def create_app(
         resolved_settings.apple_timeout_seconds,
     )
     resolved_photo_storage = photo_storage or (
-        GcsPhotoStorage(resolved_settings.gcs_bucket)
+        S3PhotoStorage(resolved_settings.s3_bucket, region=resolved_settings.aws_region)
+        if resolved_settings.s3_bucket
+        else GcsPhotoStorage(resolved_settings.gcs_bucket)
         if resolved_settings.gcs_bucket
         else UnconfiguredPhotoStorage()
     )

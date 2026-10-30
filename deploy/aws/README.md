@@ -75,7 +75,7 @@ PostgreSQL 도구용 URL로 변환하고 비밀번호는 안전한 PGPASSFILE로
 실제 전환은 쓰기를 중지하고 최종 DB dump/restore와 GCS 증분 복사를 완료한 후 합니다.
 공존 중 양쪽 서버가 서로 다른 DB에 쓰지 않게 합니다. Redis refresh-token 데이터를
 옮기지 않으면 기존 사용자는 재로그인이 필요합니다. 이를 유지하려면 기존 Redis를
-계속 쓰도록 compose의 DALM_REDIS_URL을 수정하거나 쓰기 중지 상태에서 호환 RDB/AOF
+계속 쓰도록 `.env`의 `DALM_REDIS_URL`에 기존 URL을 설정하거나 쓰기 중지 상태에서 호환 RDB/AOF
 백업/복원 후 회전/재사용 차단을 검증합니다. Redis 키를 문서나 PR에 출력하지 않습니다.
 
 ## 5. 릴리스 실행
@@ -125,3 +125,21 @@ DB를 새로 옮긴 후 쓰기가 발생했다면 단순히 Cloud Run으로 주�
 AWS 근거: [조건부 객체 쓰기](https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_object.html),
 [임시 조회 URL](https://docs.aws.amazon.com/boto3/latest/guide/s3-presigned-urls.html),
 [SSM 인스턴스 권한](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-instance-profile.html).
+
+
+## 2026-10-30 AWS 준비 상태
+
+- EC2: `i-062420af9d8c1258b` (`gachon-20-dalm-api`), 서울, Ubuntu 24.04,
+  t3.small, 암호화 gp3 20GiB, CPU standard, IMDSv2 required/hop limit 2.
+- Instance profile: `SafeInstanceProfile-gachon-20`.
+- Security group: `sg-09e9def218ce09900`; inbound 규칙 없음.
+- S3: `gachon-20-dalm-photos-459600194430`; 서울, ACL 비활성,
+  모든 public access 차단, versioning 활성, SSE-S3.
+- SSM의 상태 조회/프로파일 조회는 거부되지만 **실제 Session Manager 세션 접속은 성공**.
+  조회 오류만으로 SSH를 개방할 필요는 없습니다.
+- EC2 bootstrap: Docker/Compose 설치 및 cloud-init 완료 확인.
+- EIP는 미부착. 조교에게 위 instance ID로 요청해야 합니다.
+- 운영 secret/DB/Redis 및 GCS 객체는 아직 전송하지 않았고 트래픽도 전환하지 않았습니다.
+
+공유 DB/Redis로 첫 readiness 검사를 하더라도 사용자 API 호출은 아직 하지 않습니다.
+GCS의 기존 객체를 S3로 복사·검증하기 전에는 새 API의 사진 조회를 운영에 노출하지 않습니다.

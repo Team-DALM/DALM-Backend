@@ -6,7 +6,7 @@ x-app: &app
     context: ../..
   env_file: .env
   environment:
-    DALM_REDIS_URL: redis://redis:6379/0
+    DALM_REDIS_URL: ${DALM_REDIS_URL:-redis://redis:6379/0}
   restart: unless-stopped
   logging:
     driver: json-file

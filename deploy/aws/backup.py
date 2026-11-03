@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+POSTGRES_IMAGE = "postgres:18"
+RESTORE_IMAGE = "pgvector/pgvector:0.8.7-pg18-trixie"
 
 
 def call(args, **kwargs):
@@ -40,7 +42,8 @@ print(json.dumps(dict(PGHOST=u.host,PGPORT=str(u.port or 5432),PGUSER=u.username
     try:
         with os.fdopen(fd, "wb") as output:
             subprocess.run(
-                ["docker", "run", "--rm", *flags, "postgres:17", "pg_dump",
+                ["docker", "run", "--rm", "--network", "dalm-aws_default",
+                 *flags, POSTGRES_IMAGE, "pg_dump",
                  "--format=custom", "--no-owner", "--no-acl"],
                 env=env, stdout=output, check=True,
             )
@@ -48,9 +51,9 @@ print(json.dumps(dict(PGHOST=u.host,PGPORT=str(u.port or 5432),PGUSER=u.username
         name = "dalm-restore-check-" + secrets.token_hex(5)
         scratch_env = dict(os.environ, POSTGRES_PASSWORD=secrets.token_urlsafe(32))
         subprocess.run(
-            ["docker", "run", "-d", "--name", name, "--network", "none",
-             "--tmpfs", "/var/lib/postgresql/data", "-e", "POSTGRES_PASSWORD",
-             "-e", "POSTGRES_DB=restore_check", "pgvector/pgvector:pg17"],
+            ["docker", "run", "-d", "--rm", "--name", name, "--network", "none",
+             "--tmpfs", "/var/lib/postgresql", "-e", "POSTGRES_PASSWORD",
+             "-e", "POSTGRES_DB=restore_check", RESTORE_IMAGE],
             env=scratch_env, stdout=subprocess.DEVNULL, check=True,
         )
         try:

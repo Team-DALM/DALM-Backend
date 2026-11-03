@@ -13,3 +13,4 @@ node_modules/
 .env.local
 .deploy.lock
 .deployed-sha
+deploy/aws/postgres/secrets/

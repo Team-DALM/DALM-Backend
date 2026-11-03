@@ -88,8 +88,8 @@ DALM/
 ## 학교 AWS 이관
 
 EC2 배포 구성, S3 사진 저장소 및 데이터 보존/전환 절차는
-[학교 AWS 이관 실행서](deploy/aws/README.md)를 참고하세요. 실제 전환 전까지 기존
-Cloud Run 배포는 유지합니다. `DALM_S3_BUCKET` 설정 시 EC2 역할로 S3를 사용합니다.
+[학교 AWS 실행서](deploy/aws/README.md)를 참고하세요. 운영은 EC2의 API·PostgreSQL·Redis와
+비공개 S3를 사용합니다. GitHub Actions는 CI를 수행하고 EC2가 검증된 main을 가져와 배포합니다.
 
 ## 로컬 실행
 
@@ -127,7 +127,8 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 | `DALM_JWT_SECRET` | 없음 | JWT 서명 키, 최소 32자 필수 |
 | `DALM_DATABASE_URL` | 로컬 PostgreSQL | SQLAlchemy 비동기 연결 URL |
 | `DALM_REDIS_URL` | `redis://localhost:6380/0` | Redis 연결 URL |
-| `DALM_GCS_BUCKET` | 없음 | 비공개 사진을 저장할 Google Cloud Storage 버킷 이름 |
+| `DALM_S3_BUCKET` | 없음 | 운영 사진을 저장할 비공개 S3 버킷 이름 |
+| `DALM_GCS_BUCKET` | 없음 | 선택적 GCS 호환 저장소. 현재 AWS 운영에서는 비워 둠 |
 | `DALM_INTERNAL_API_KEY` | 없음 | AI 검증 결과 콜백 인증에 사용하는 내부 API 키 |
 | `DALM_VALIDATION_MAX_ATTEMPTS` | `3` | 사진 검증 작업 최대 실행 횟수 |
 | `DALM_VALIDATION_RETRY_BASE_SECONDS` | `30` | 사진 검증 지수 백오프 기준 시간(초) |
@@ -148,11 +149,9 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 운영 환경에서는 예시 값을 사용하지 말고 Secret Manager 등 안전한 저장소에서 무작위
 서명 키를 주입합니다. `.env` 파일은 Git에 커밋하지 않습니다.
 
-사진 업로드를 사용하려면 `asia-northeast3`의 비공개 GCS 버킷을 준비하고 Cloud Run 런타임
-서비스 계정에 객체 생성·조회·삭제 권한과 Signed URL 생성을 위한 `signBlob` 권한을 부여합니다.
-IAM Service Account Credentials API를 활성화하고 런타임 계정이 자기 자신에 대해
-`iam.serviceAccounts.signBlob` 권한을 갖도록 설정합니다. URL 서명 토큰에는
-`cloud-platform` scope를 사용합니다(객체 요청용 토큰과 분리).
+AWS 운영 사진은 비공개 S3에 저장하며 EC2 인스턴스 역할로 접근합니다. AWS 액세스 키를
+앱이나 환경 파일에 넣지 않습니다. 버킷의 공개 접근을 차단하고 짧게 유효한 presigned URL로
+사진을 조회합니다. 로컬 실행에서 사진 업로드를 사용하려면 별도로 저장소 접근을 설정합니다.
 검증 시간 초과·최종 실패는 각각 `VALIDATION_TIMEOUT`·`VALIDATION_FAILED` 코드로
 거절 사유를 반환하며, 기존 코드 누락 데이터는 조회 시 `VALIDATION_FAILED`로 보완합니다.
 AI 검증 결과 콜백을 사용하려면 `DALM_INTERNAL_API_KEY`를 별도 Secret Manager 시크릿으로
@@ -373,9 +372,8 @@ python -m scripts.expire_searching_photos
 통과 처리합니다. 사진, PASSED 검증 기록, 임베딩 대기 작업, 검증 통과 알림을 하나의 DB
 트랜잭션으로 저장하며 등록 응답은 `SEARCHING`입니다. 기본값 false에서는 기존 비동기
 `VALIDATING` 계약을 사용합니다. API는 상시 Worker를 시작하지 않습니다.
-Cloud Run은 최소 인스턴스 0개와 요청 기반 CPU 할당으로 유휴 상시 비용을 제거합니다.
-무료 한도 초과 시 요청 처리·저장·다운로드 비용이 발생할 수 있어 프로젝트 전체 0원을
-보장하지는 않습니다. 기존 `REJECTED` 사진은 자동 복구되지 않으므로 재등록해야 합니다.
+AWS 운영 비용은 EC2·EBS·S3 사용량에 따라 발생합니다.
+기존 `REJECTED` 사진은 자동 복구되지 않으므로 재등록해야 합니다.
 임베딩/매칭 Worker는 별도입니다.
 
 AI 모델이 준비되기 전에는 Mock 사진 검증 Worker로 비동기 계약을 검증할 수 있습니다.

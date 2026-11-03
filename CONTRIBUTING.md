@@ -48,10 +48,10 @@ CI에서는 위 검사와 함께 Alembic 전체 마이그레이션 SQL 생성, D
 프로덕션 Docker 이미지 빌드까지 수행합니다. 모든 검사가 통과한 커밋만 배포 대상으로
 사용합니다.
 
-`main` 브랜치에 반영되면 GitHub Actions가 `production` Environment의 Google Cloud
-Workload Identity 설정으로 인증합니다. 동일한 이미지를 사용해 Alembic 마이그레이션
-Job을 먼저 완료한 후 서울 리전의 `dalm-api` Cloud Run 서비스에 배포하고 `/ready`를
-확인합니다. 마이그레이션 또는 준비 상태 확인이 실패하면 workflow도 실패합니다.
+`main` 브랜치에 반영되면 GitHub Actions가 정적 분석·테스트·컨테이너 빌드를 수행합니다.
+EC2의 배포 타이머는 해당 커밋의 CI 성공을 확인한 뒤 코드를 가져와 DB migration과
+API 준비 상태 검증을 거쳐 배포합니다. AWS 액세스 키와 GitHub 배포 토큰은 사용하지 않습니다.
+운영 절차는 [AWS 실행서](deploy/aws/README.md)를 참고합니다.
 
 ## PR 생성과 담당자 지정
 

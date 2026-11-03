@@ -117,9 +117,8 @@ DB를 새로 옮긴 후 쓰기가 발생했다면 단순히 Cloud Run으로 주�
 유실됩니다. 다시 쓰기를 중지하고 새 DB의 변경 데이터를 원본에 동기화한 뒤 되돌립니다.
 기존 DB/버킷/Cloud Run은 복구 기간과 데이터 정합성을 확인한 뒤 별도 승인으로 정리합니다.
 
-GitHub 저장소 변수 `DEPLOY_TARGET=aws`를 설정하면 이 workflow의 Cloud Run 배포는
-건너뜁니다. 값이 없으면 기존 Cloud Run 배포를 유지합니다. AWS 자동 배포 설치 절차는
-아래와 같습니다.
+GitHub Actions는 CI만 수행합니다. 기존 GCP 배포 job과 배포 인증은 사용하지 않습니다.
+AWS 자동 배포 설치 절차는 아래와 같습니다.
 
 AWS 근거: [조건부 객체 쓰기](https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_object.html),
 [임시 조회 URL](https://docs.aws.amazon.com/boto3/latest/guide/s3-presigned-urls.html),
@@ -164,11 +163,11 @@ DB 전체 복사에 대한 승인을 받은 경우에만 실행합니다. 기본
 sudo python3 /opt/dalm/backend/deploy/aws/backup.py --upload
 ```
 
-덤프는 mode 600으로 저장하고 네트워크가 차단된 임시 pgvector PostgreSQL 17에 복원하여
+덤프는 mode 600으로 저장하고 네트워크가 차단된 임시 pgvector PostgreSQL 18에 복원하여
 Alembic revision과 vector extension을 확인합니다. 복원이 성공한 덤프만 인스턴스 역할로
 비공개 S3의 `backups/postgres/`에 저장하고 다시 읽어 SHA256을 대조합니다.
 S3에 별도 백업 버킷을 쓰려면 `.env`의 `DALM_BACKUP_S3_BUCKET`을 설정합니다.
 
-서버 버전이 17보다 높으면 pg_dump/복원 이미지의 버전을 먼저 맞춰야 합니다. 장기 운영의
+서버의 PostgreSQL major 버전이 변경되면 pg_dump/복원 이미지의 버전도 맞춰야 합니다. 장기 운영의
 백업 주기와 보존 정책은 데이터 승인 범위를 확정한 뒤 설정합니다. 구 서버/버킷/운영 DB를
 삭제하는 작업은 이 스크립트에 포함되지 않습니다.

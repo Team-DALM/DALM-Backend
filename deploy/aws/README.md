@@ -1,15 +1,14 @@
 # 학교 AWS 이관 실행서
 
-이 PR은 이관 준비입니다. Cloud Run 자동 배포는 그대로 유지하며 AWS 전환/기존 리소스
-삭제를 자동 실행하지 않습니다. AWS 로그인, 역할 권한, 데이터 복원과 HTTPS 경로 검증이
-끝난 뒤 전환합니다. 현재 확인된 가이드는 아래와 같습니다.
+학교 계정의 정책에 따라 HTTP로 공개하는 EC2 배포 구성입니다. 기존 리소스 삭제는
+자동 실행하지 않습니다. 현재 확인된 가이드는 아래와 같습니다.
 
 - 서울 `ap-northeast-2`, EC2 `t3.nano`~`t3.small`만 허용.
 - EC2에는 `SafeInstanceProfile-gachon-20` 연결. 액세스 키 발급 금지.
 - S3 버킷 이름은 `gachon-20`으로 시작.
 - EIP는 생성한 인스턴스 ID를 조교에게 전달하면 직접 부착.
-- 조교 메일에 HTTPS/Route53 불허. 외부 TLS 프록시 또는 기존 HTTPS 진입점의
-  사용 가능 여부를 확인하기 전 실제 사용자 트래픽을 HTTP로 전환하지 않습니다.
+- 조교 메일에 HTTPS/Route53 불허. HTTP 80 공개 시 토큰과 API 데이터는 전송 중
+  암호화되지 않습니다. EIP는 주소 고정용이며 HTTP 접속의 필수 조건은 아닙니다.
 
 출처: [학교 가이드](https://rowan-cupboard-1fe.notion.site/AWS-Management-Console-Credentials-Detailed-gachon-3f92156ceb5f8020a3a8c26a8da440c2).
 가이드의 최초 비밀번호 변경과 MFA는 사용자가 직접 완료합니다.
@@ -20,7 +19,7 @@
 - 기존 DB의 직접 연결 URL, GCS 버킷과 읽기 권한, Redis 운영 방식과 연결 정보.
 - 기존 JWT secret, internal API key, Apple client IDs. 값은 Git/PR/로그에 남기지 않습니다.
 - S3 생성/객체 접근 권한. 역할 이름만으로 실제 권한을 보장할 수 없습니다.
-- HTTPS 정책 답변, EIP, 클라이언트 배포 담당자.
+- 현재 퍼블릭 IP와 클라이언트 배포 담당자. EIP는 조교가 부착합니다.
 
 ## 2. EC2 준비
 
@@ -105,12 +104,12 @@ EBS 단일 서버 장애에 대비해 Redis와 DB의 외부 백업/복원 점검
 
 ## 6. 전환 조건과 되돌리기
 
-다음 항목을 모두 확인한 뒤 HTTPS 진입점과 Flutter API_BASE_URL을 전환합니다.
+다음 항목을 확인한 뒤 Flutter API_BASE_URL을 HTTP 진입점으로 전환합니다.
 
 - `/health`, `/ready` 성공, Kakao/Apple 로그인과 refresh/logout 성공.
 - 새 사진 업로드/조회/삭제 및 기존 사진 조회 성공, 공개 S3 접근 거부.
 - DB/Redis 비공개 접근, 재부팅 후 자동 복구, 백업 복원 확인.
-- 조교에게 인스턴스 ID로 EIP 부착 요청 완료 및 HTTPS 경로 허용 확인.
+- HTTP 80 외부 접속과 앱의 해당 호스트 HTTP 허용 설정 확인. EIP 부착 후에는 고정 주소로 갱신.
 - 운영 쓰기를 중지한 뒤 최종 동기화, 구 서버의 쓰기/worker 중지 확인.
 
 코드 롤백은 이전 SHA checkout 후 재배포하되 migration의 이전 코드 호환성을 먼저 확인합니다.
@@ -118,10 +117,58 @@ DB를 새로 옮긴 후 쓰기가 발생했다면 단순히 Cloud Run으로 주�
 유실됩니다. 다시 쓰기를 중지하고 새 DB의 변경 데이터를 원본에 동기화한 뒤 되돌립니다.
 기존 DB/버킷/Cloud Run은 복구 기간과 데이터 정합성을 확인한 뒤 별도 승인으로 정리합니다.
 
-전환 완료 후 기존 CI의 Cloud Run deploy job을 비활성화해야 main push로 구 서버가
-재기동하지 않습니다. AWS 자동 배포는 역할 권한 확인 후 SSM 등 학교가 허용한 경로로
-연결합니다. 이 PR은 검증 전 운영 CI의 대상이나 보안 정책을 임의로 바꾸지 않습니다.
+GitHub 저장소 변수 `DEPLOY_TARGET=aws`를 설정하면 이 workflow의 Cloud Run 배포는
+건너뜁니다. 값이 없으면 기존 Cloud Run 배포를 유지합니다. AWS 자동 배포 설치 절차는
+아래와 같습니다.
 
 AWS 근거: [조건부 객체 쓰기](https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_object.html),
 [임시 조회 URL](https://docs.aws.amazon.com/boto3/latest/guide/s3-presigned-urls.html),
 [SSM 인스턴스 권한](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager-getting-started-instance-profile.html).
+
+
+## 7. HTTP 공개와 자동 배포
+
+SSM에서 아래 명령으로 Nginx gateway를 실행합니다. API 8000은 계속 localhost 전용입니다.
+Nginx는 사진 업로드를 위해 12MiB 요청을 허용하며 `/internal/` 경로는 외부에서 404입니다.
+
+```bash
+cd /opt/dalm/backend/deploy/aws
+sudo docker compose up -d --wait nginx
+curl --fail http://127.0.0.1/ready
+```
+
+학교 가이드대로 보안 그룹의 자동 `username` 태그를 확인한 뒤 TCP 80을 허용합니다.
+DB/Redis/8000/SSH는 추가 개방하지 않습니다. 외부에서 `/health`, `/ready`, `/docs`와
+비인증 보호 API의 401을 확인합니다. 클라이언트에는 `http://현재IP/v1/`을 전달합니다.
+
+```bash
+sudo bash /opt/dalm/backend/deploy/aws/install-ops.sh
+```
+
+5분마다 public GitHub의 main을 확인하고 **해당 SHA의 push CI 전체 성공**을 확인한 뒤
+배포합니다. AWS 액세스 키나 GitHub 토큰을 서버에 저장하지 않습니다. 로컬 수정이 있거나
+main에 AWS 배포 코드가 아직 병합되지 않았으면 건너뜁니다. 배포는 파일 잠금으로 직렬화하며
+성공한 이미지 SHA를 `.env`에 기록해 재부팅 후에도 동일한 버전을 사용합니다.
+
+```bash
+systemctl list-timers dalm-deploy.timer
+journalctl -u dalm-deploy.service --no-pager -n 30
+```
+
+## 8. 선택적 백업·복원 검증
+
+DB 전체 복사에 대한 승인을 받은 경우에만 실행합니다. 기본 설치에서는 백업 timer를
+활성화하지 않습니다. 운영 DB를 변경하거나 Redis 세션을 초기화하지 않습니다.
+
+```bash
+sudo python3 /opt/dalm/backend/deploy/aws/backup.py --upload
+```
+
+덤프는 mode 600으로 저장하고 네트워크가 차단된 임시 pgvector PostgreSQL 17에 복원하여
+Alembic revision과 vector extension을 확인합니다. 복원이 성공한 덤프만 인스턴스 역할로
+비공개 S3의 `backups/postgres/`에 저장하고 다시 읽어 SHA256을 대조합니다.
+S3에 별도 백업 버킷을 쓰려면 `.env`의 `DALM_BACKUP_S3_BUCKET`을 설정합니다.
+
+서버 버전이 17보다 높으면 pg_dump/복원 이미지의 버전을 먼저 맞춰야 합니다. 장기 운영의
+백업 주기와 보존 정책은 데이터 승인 범위를 확정한 뒤 설정합니다. 구 서버/버킷/운영 DB를
+삭제하는 작업은 이 스크립트에 포함되지 않습니다.

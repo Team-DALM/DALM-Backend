@@ -65,7 +65,6 @@ def literal(s):
 SNAPSHOT = """import asyncio,os,json
 import asyncpg
 async def main():
-    os.umask(0o077)
  c=await asyncpg.connect(host=os.environ['PGHOST'],port=int(os.environ['PGPORT']),user=os.environ['PGUSER'],password=os.environ['PGPASSWORD'],database=os.environ['PGDATABASE'],ssl=os.environ['PGSSLMODE'])
  out={'tables':{},'sequences':{},'revision':await c.fetchval('SELECT version_num FROM alembic_version')}
  tables=await c.fetch("SELECT schemaname,tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2")
@@ -233,6 +232,7 @@ WRITE_CHECK = "async def main():\n c=await asyncpg.connect(host=os.environ['PGHO
 
 
 def main():
+    os.umask(0o077)
     global app_image, source, app_password
     STATE.mkdir(parents=True, exist_ok=True)
     PGROOT.mkdir(parents=True, exist_ok=True)

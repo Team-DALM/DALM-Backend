@@ -1,0 +1,44 @@
+# Copy this directory to a protected host directory outside the application checkout.
+# Create secrets/postgres_password (mode 600) before starting the database.
+name: dalm-db
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg18-trixie
+    environment:
+      POSTGRES_DB: dalm
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --data-checksums
+    secrets:
+      - postgres_password
+    volumes:
+      # PostgreSQL 18 stores PGDATA beneath this version-independent parent.
+      - postgres_data:/var/lib/postgresql
+    networks:
+      app:
+        aliases: [postgres]
+    restart: unless-stopped
+    shm_size: 128mb
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U postgres -d dalm]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+
+volumes:
+  postgres_data:
+    name: dalm_postgres_data
+
+networks:
+  app:
+    external: true
+    name: dalm-aws_default

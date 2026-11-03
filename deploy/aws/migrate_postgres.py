@@ -14,7 +14,6 @@ PGROOT = Path("/var/lib/dalm/postgres")
 IMAGE = "pgvector/pgvector:0.8.7-pg18-trixie"
 API = "dalm-aws-api-1"
 NETWORK = "dalm-aws_default"
-os.umask(0o077)
 
 
 def run(args, *, input=None, env=None, binary=False):
@@ -66,6 +65,7 @@ def literal(s):
 SNAPSHOT = """import asyncio,os,json
 import asyncpg
 async def main():
+    os.umask(0o077)
  c=await asyncpg.connect(host=os.environ['PGHOST'],port=int(os.environ['PGPORT']),user=os.environ['PGUSER'],password=os.environ['PGPASSWORD'],database=os.environ['PGDATABASE'],ssl=os.environ['PGSSLMODE'])
  out={'tables':{},'sequences':{},'revision':await c.fetchval('SELECT version_num FROM alembic_version')}
  tables=await c.fetch("SELECT schemaname,tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema') ORDER BY 1,2")
@@ -227,6 +227,11 @@ def verify(expected, target, label):
     return actual
 
 
+SOURCE_SETTINGS = "import json,os\nfrom sqlalchemy.engine import make_url\nu=make_url(os.getenv('DALM_BACKUP_DATABASE_URL') or os.environ['DALM_DATABASE_URL'])\nh=u.host.replace('-pooler.','.') if u.host.endswith('neon.tech') else u.host\nprint(json.dumps(dict(PGHOST=h,PGPORT=str(u.port or 5432),PGUSER=u.username,PGPASSWORD=u.password or '',PGDATABASE=u.database,PGSSLMODE=u.query.get('sslmode',u.query.get('ssl','require')))))"
+
+WRITE_CHECK = "async def main():\n c=await asyncpg.connect(host=os.environ['PGHOST'],port=int(os.environ['PGPORT']),user=os.environ['PGUSER'],password=os.environ['PGPASSWORD'],database=os.environ['PGDATABASE'],ssl=False)\n t=c.transaction(); await t.start()\n await c.execute('CREATE TABLE public.__dalm_migration_write_check(id integer)')\n await c.execute('INSERT INTO public.__dalm_migration_write_check VALUES (1)')\n await t.rollback()\n assert not await c.fetchval(\"SELECT to_regclass('public.__dalm_migration_write_check')\")\n assert not await c.fetchval('SELECT rolsuper FROM pg_roles WHERE rolname=current_user')\n await c.close()\n print('App-role write and rollback: PASS')\nasyncio.run(main())"
+
+
 def main():
     global app_image, source, app_password
     STATE.mkdir(parents=True, exist_ok=True)
@@ -236,11 +241,7 @@ def main():
     if settings_file.exists():
         source = json.loads(settings_file.read_text())
     else:
-        code = """import json,os
-    from sqlalchemy.engine import make_url
-    u=make_url(os.getenv('DALM_BACKUP_DATABASE_URL') or os.environ['DALM_DATABASE_URL'])
-    h=u.host.replace('-pooler.','.') if u.host.endswith('neon.tech') else u.host
-    print(json.dumps(dict(PGHOST=h,PGPORT=str(u.port or 5432),PGUSER=u.username,PGPASSWORD=u.password or '',PGDATABASE=u.database,PGSSLMODE=u.query.get('sslmode',u.query.get('ssl','require')))))"""
+        code = SOURCE_SETTINGS
         source = json.loads(run(["docker", "exec", API, "python", "-c", code]))
         save(settings_file, source)
 
@@ -309,20 +310,7 @@ def main():
             target = restore(archive, db)
             result = verify(expected, target, "final")
             # Verify a write transaction using the app role, then roll it back.
-            check = (
-                SNAPSHOT[: SNAPSHOT.index("async def main():")]
-                + """async def main():
-     c=await asyncpg.connect(host=os.environ['PGHOST'],port=int(os.environ['PGPORT']),user=os.environ['PGUSER'],password=os.environ['PGPASSWORD'],database=os.environ['PGDATABASE'],ssl=False)
-     t=c.transaction(); await t.start()
-     await c.execute('CREATE TABLE public.__dalm_migration_write_check(id integer)')
-     await c.execute('INSERT INTO public.__dalm_migration_write_check VALUES (1)')
-     await t.rollback()
-     assert not await c.fetchval("SELECT to_regclass('public.__dalm_migration_write_check')")
-     assert not await c.fetchval('SELECT rolsuper FROM pg_roles WHERE rolname=current_user')
-     await c.close()
-     print('App-role write and rollback: PASS')
-    asyncio.run(main())"""
-            )
+            check = SNAPSHOT[: SNAPSHOT.index("async def main():")] + WRITE_CHECK
             print(app_python(check, target), flush=True)
             url = (
                 "postgresql+asyncpg://dalm:"

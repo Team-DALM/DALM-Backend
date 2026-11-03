@@ -1,0 +1,12 @@
+[Unit]
+Description=Deploy a CI-verified DALM main release
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/dalm/backend
+ExecStart=/usr/bin/python3 /opt/dalm/backend/deploy/aws/auto_deploy.py
+TimeoutStartSec=20min
+UMask=0077

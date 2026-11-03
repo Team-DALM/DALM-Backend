@@ -16,6 +16,8 @@ class Settings:
     access_token_ttl_seconds: int = 1_800
     refresh_token_ttl_seconds: int = 2_592_000
     jwt_algorithm: str = "HS256"
+    s3_bucket: str | None = None
+    aws_region: str = "ap-northeast-2"
     gcs_bucket: str | None = None
     photo_max_bytes: int = 10 * 1024 * 1024
     photo_min_width: int = 800
@@ -54,6 +56,8 @@ class Settings:
             apple_timeout_seconds=float(os.getenv("DALM_APPLE_TIMEOUT_SECONDS", "5")),
             access_token_ttl_seconds=int(os.getenv("DALM_ACCESS_TOKEN_TTL_SECONDS", "1800")),
             refresh_token_ttl_seconds=int(os.getenv("DALM_REFRESH_TOKEN_TTL_SECONDS", "2592000")),
+            s3_bucket=os.getenv("DALM_S3_BUCKET") or None,
+            aws_region=os.getenv("AWS_DEFAULT_REGION", "ap-northeast-2"),
             gcs_bucket=os.getenv("DALM_GCS_BUCKET") or None,
             photo_max_bytes=int(os.getenv("DALM_PHOTO_MAX_BYTES", str(10 * 1024 * 1024))),
             photo_min_width=int(os.getenv("DALM_PHOTO_MIN_WIDTH", "800")),

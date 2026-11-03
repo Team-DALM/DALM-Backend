@@ -1,0 +1,12 @@
+[Unit]
+Description=Back up DALM PostgreSQL and verify an isolated restore
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/dalm/backend/deploy/aws
+ExecStart=/usr/bin/python3 /opt/dalm/backend/deploy/aws/backup.py --upload
+TimeoutStartSec=30min
+UMask=0077

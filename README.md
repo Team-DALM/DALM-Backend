@@ -85,6 +85,12 @@ DALM/
 └── pyproject.toml           # 패키지·도구 설정
 ```
 
+## 학교 AWS 이관
+
+EC2 배포 구성, S3 사진 저장소 및 데이터 보존/전환 절차는
+[학교 AWS 이관 실행서](deploy/aws/README.md)를 참고하세요. 실제 전환 전까지 기존
+Cloud Run 배포는 유지합니다. `DALM_S3_BUCKET` 설정 시 EC2 역할로 S3를 사용합니다.
+
 ## 로컬 실행
 
 ### 1. 저장소 준비

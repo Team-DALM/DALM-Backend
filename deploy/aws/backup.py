@@ -59,7 +59,11 @@ print(json.dumps(dict(PGHOST=u.host,PGPORT=str(u.port or 5432),PGUSER=u.username
         try:
             for _ in range(60):
                 ready = subprocess.run(
-                    ["docker", "exec", name, "pg_isready", "-U", "postgres"],
+                    # The image's temporary init server accepts only Unix sockets.
+                    # TCP readiness means initialization has finished and the final
+                    # server is running, so restore cannot race the init shutdown.
+                    ["docker", "exec", name, "pg_isready", "-h", "127.0.0.1",
+                     "-U", "postgres", "-d", "restore_check"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
                 )
                 if ready.returncode == 0:
@@ -94,7 +98,6 @@ print(json.dumps(dict(PGHOST=u.host,PGPORT=str(u.port or 5432),PGUSER=u.username
             json.dump(metadata, stream)
         if upload:
             # Use the EC2 role from an app container; no access keys are required.
-            image = call(["docker", "compose", "images", "-q", "api"], cwd=ROOT)
             code = '''import boto3,os,hashlib
 c=boto3.client("s3",region_name=os.getenv("AWS_DEFAULT_REGION","ap-northeast-2"))
 b=os.environ.get("DALM_BACKUP_S3_BUCKET") or os.environ["DALM_S3_BUCKET"]
@@ -106,9 +109,12 @@ actual=hashlib.sha256(c.get_object(Bucket=b,Key=k)["Body"].read()).hexdigest()
 assert actual==expected
 print("Private S3 backup round-trip SHA256: PASS")'''
             subprocess.run(
-                ["docker", "run", "--rm", "--user", "0", "--env-file", str(ROOT / ".env"),
+                # Compose parses quoted .env values consistently with the API.
+                # docker run --env-file would preserve those quote characters.
+                ["docker", "compose", "run", "-T", "--interactive=false", "--rm",
+                 "--no-deps", "--user", "0",
                  "-e", f"BACKUP_FILE={archive.name}", "-v", f"{directory}:/backup:ro",
-                 image, "python", "-c", code], check=True,
+                 "api", "python", "-c", code], cwd=ROOT, check=True,
             )
         print("Backup and isolated restore verified:", json.dumps(metadata))
     except BaseException:

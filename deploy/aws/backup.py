@@ -59,7 +59,11 @@ print(json.dumps(dict(PGHOST=u.host,PGPORT=str(u.port or 5432),PGUSER=u.username
         try:
             for _ in range(60):
                 ready = subprocess.run(
-                    ["docker", "exec", name, "pg_isready", "-U", "postgres"],
+                    # The image's temporary init server accepts only Unix sockets.
+                    # TCP readiness means initialization has finished and the final
+                    # server is running, so restore cannot race the init shutdown.
+                    ["docker", "exec", name, "pg_isready", "-h", "127.0.0.1",
+                     "-U", "postgres", "-d", "restore_check"],
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
                 )
                 if ready.returncode == 0:

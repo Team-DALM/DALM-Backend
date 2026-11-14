@@ -53,8 +53,9 @@ Flutter 클라이언트에 REST API를 제공하고 인증, 사용자, 사진, A
 
 - 로컬 Swagger UI: http://localhost:8000/docs
 - 로컬 OpenAPI JSON: http://localhost:8000/openapi.json
-- Production Swagger UI: https://dalm-api-s4c3oo7osa-du.a.run.app/docs
-- Production OpenAPI JSON: https://dalm-api-s4c3oo7osa-du.a.run.app/openapi.json
+
+운영 Swagger UI와 OpenAPI JSON은 AWS 운영 API 주소에 각각 `/docs`와
+`/openapi.json`을 붙여 접속합니다. 접속 주소 확인은 [AWS 이관 실행서](deploy/aws/README.md)를 참고하세요.
 
 로컬 Swagger UI는 아래의 API 서버 실행 명령을 실행한 뒤 접속할 수 있습니다.
 
@@ -128,7 +129,6 @@ export DALM_JWT_SECRET='replace-with-at-least-32-random-characters'
 | `DALM_DATABASE_URL` | 로컬 PostgreSQL | SQLAlchemy 비동기 연결 URL |
 | `DALM_REDIS_URL` | `redis://localhost:6380/0` | Redis 연결 URL |
 | `DALM_S3_BUCKET` | 없음 | 운영 사진을 저장할 비공개 S3 버킷 이름 |
-| `DALM_GCS_BUCKET` | 없음 | 선택적 GCS 호환 저장소. 현재 AWS 운영에서는 비워 둠 |
 | `DALM_INTERNAL_API_KEY` | 없음 | AI 검증 결과 콜백 인증에 사용하는 내부 API 키 |
 | `DALM_VALIDATION_MAX_ATTEMPTS` | `3` | 사진 검증 작업 최대 실행 횟수 |
 | `DALM_VALIDATION_RETRY_BASE_SECONDS` | `30` | 사진 검증 지수 백오프 기준 시간(초) |

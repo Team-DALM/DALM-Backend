@@ -16,7 +16,7 @@
 ## 1. 먼저 확보할 정보
 
 - 학교 콘솔 로그인 및 MFA, 사용 가능한 VPC/subnet/security group.
-- 기존 DB의 직접 연결 URL, GCS 버킷과 읽기 권한, Redis 운영 방식과 연결 정보.
+- 운영 PostgreSQL의 직접 연결 URL, S3 버킷, Redis 연결 정보.
 - 기존 JWT secret, internal API key, Apple client IDs. 값은 Git/PR/로그에 남기지 않습니다.
 - S3 생성/객체 접근 권한. 역할 이름만으로 실제 권한을 보장할 수 없습니다.
 - 현재 퍼블릭 IP와 클라이언트 배포 담당자. EIP는 조교가 부착합니다.
@@ -57,11 +57,9 @@ Engine과 Compose plugin, git, curl을 설치합니다. 재부팅 시 Docker가 
 
 ## 4. DB와 Redis 보존
 
-첫 EC2 검증은 기존 PostgreSQL을 유지할 수 있습니다. `DALM_DATABASE_URL`을 기존 운영
-URL로 설정하되 실제 운영 DB에 migration을 실행하기 전 백업과 변경 내용을 확인합니다.
-DB를 RDS PostgreSQL로 옮길 경우 학교가 허용하는 엔진/버전에서 `vector` extension
-사용 가능 여부를 먼저 확인합니다. RDS 네트워크 접근은 EC2만 허용합니다. 가이드에서
-public access를 요구해도 5432를 전체 인터넷에 개방하지 않습니다.
+운영 PostgreSQL과 Redis는 EC2 내부 Docker 네트워크에서 연결합니다.
+PostgreSQL 구성과 복원 절차는 [PostgreSQL 실행서](postgres/README.md)를 참고합니다.
+DB migration 전에는 백업과 변경 내용을 확인합니다.
 
 검증용 새 DB에서 PostgreSQL 도구의 `pg_dump --format=custom --no-owner --no-acl` 및
 `pg_restore --no-owner --no-acl --exit-on-error`로 복원 시험 후 테이블별 건수, Alembic
@@ -69,11 +67,9 @@ revision, vector extension, 사진 storage_key를 대조합니다. 복원된 DB�
 `alembic upgrade head`를 실행합니다. URL은 SQLAlchemy의 `+asyncpg` URL이 아닌
 PostgreSQL 도구용 URL로 변환하고 비밀번호는 안전한 PGPASSFILE로 전달합니다.
 
-실제 전환은 쓰기를 중지하고 최종 DB dump/restore와 GCS 증분 복사를 완료한 후 합니다.
-공존 중 양쪽 서버가 서로 다른 DB에 쓰지 않게 합니다. Redis refresh-token 데이터를
-옮기지 않으면 기존 사용자는 재로그인이 필요합니다. 이를 유지하려면 기존 Redis를
-계속 쓰도록 `.env`의 `DALM_REDIS_URL`에 기존 URL을 설정하거나 쓰기 중지 상태에서 호환 RDB/AOF
-백업/복원 후 회전/재사용 차단을 검증합니다. Redis 키를 문서나 PR에 출력하지 않습니다.
+서버를 교체할 때는 쓰기를 중지하고 최종 DB 백업과 사진 객체를 동기화합니다.
+Redis 세션은 호환 RDB/AOF 백업을 복원한 뒤 토큰 회전과 재사용 차단을 검증합니다.
+Redis 키와 연결 비밀정보를 문서나 PR에 출력하지 않습니다.
 
 ## 5. 릴리스 실행
 
@@ -111,11 +107,10 @@ EBS 단일 서버 장애에 대비해 Redis와 DB의 외부 백업/복원 점검
 - 운영 쓰기를 중지한 뒤 최종 동기화, 구 서버의 쓰기/worker 중지 확인.
 
 코드 롤백은 이전 SHA checkout 후 재배포하되 migration의 이전 코드 호환성을 먼저 확인합니다.
-DB를 새로 옮긴 후 쓰기가 발생했다면 단순히 Cloud Run으로 주소만 되돌리면 데이터가
-유실됩니다. 다시 쓰기를 중지하고 새 DB의 변경 데이터를 원본에 동기화한 뒤 되돌립니다.
-기존 DB/버킷/Cloud Run은 복구 기간과 데이터 정합성을 확인한 뒤 별도 승인으로 정리합니다.
+DB 복구가 필요하면 검증된 백업을 사용하고 복구 시점 이후의 쓰기 데이터를 보존합니다.
+기존 GCP·Neon·Upstash 운영 리소스는 폐기되어 복구 대상으로 사용할 수 없습니다.
 
-GitHub Actions는 CI만 수행합니다. 기존 GCP 배포 job과 배포 인증은 사용하지 않습니다.
+GitHub Actions는 CI를 수행합니다.
 AWS 자동 배포 설치 절차는 아래와 같습니다.
 
 AWS 근거: [조건부 객체 쓰기](https://docs.aws.amazon.com/boto3/latest/reference/services/s3/client/put_object.html),

@@ -1,21 +1,11 @@
 import asyncio
-import logging
-from datetime import timedelta
 from typing import Protocol
 
 import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
-from google.api_core.exceptions import GoogleAPIError, NotFound, PreconditionFailed
-from google.auth.credentials import Scoped
-from google.auth.exceptions import GoogleAuthError
-from google.auth.transport.requests import Request
-from google.cloud import storage
 
 from app.errors import ApiError
-
-logger = logging.getLogger(__name__)
-SIGNING_SCOPES = ("https://www.googleapis.com/auth/cloud-platform",)
 
 
 class PhotoStorage(Protocol):
@@ -45,74 +35,6 @@ class UnconfiguredPhotoStorage:
     async def signed_url(self, key: str, expires_in: int) -> str:
         del key, expires_in
         raise self._error()
-
-
-class GcsPhotoStorage:
-    def __init__(self, bucket_name: str, *, client: storage.Client | None = None) -> None:
-        self._client = client or storage.Client()
-        self._bucket = self._client.bucket(bucket_name)
-
-    async def upload(self, key: str, content: bytes, content_type: str) -> None:
-        blob = self._bucket.blob(key)
-        try:
-            await asyncio.to_thread(
-                blob.upload_from_string,
-                content,
-                content_type=content_type,
-                if_generation_match=0,
-            )
-        except PreconditionFailed as exc:
-            raise ApiError(
-                409, "PHOTO_OBJECT_CONFLICT", "사진 저장 경로가 이미 존재합니다."
-            ) from exc
-        except GoogleAPIError as exc:
-            raise ApiError(
-                503, "PHOTO_STORAGE_UNAVAILABLE", "사진 저장소를 사용할 수 없습니다."
-            ) from exc
-
-    async def delete(self, key: str) -> None:
-        blob = self._bucket.blob(key)
-        try:
-            await asyncio.to_thread(blob.delete)
-        except NotFound:
-            return
-        except GoogleAPIError as exc:
-            raise ApiError(
-                503, "PHOTO_STORAGE_UNAVAILABLE", "사진 저장소를 사용할 수 없습니다."
-            ) from exc
-
-    async def signed_url(self, key: str, expires_in: int) -> str:
-        blob = self._bucket.blob(key)
-
-        def generate() -> str:
-            credentials = self._client._credentials
-            kwargs = {}
-            if not hasattr(credentials, "sign_bytes"):
-                # Storage client credentials have storage-only scopes. IAM signing
-                # needs cloud-platform; keep its token separate from storage requests.
-                if isinstance(credentials, Scoped):
-                    credentials = credentials.with_scopes(SIGNING_SCOPES)
-                credentials.refresh(Request())
-                service_account_email = getattr(credentials, "service_account_email", None)
-                if service_account_email:
-                    kwargs = {
-                        "service_account_email": service_account_email,
-                        "access_token": credentials.token,
-                    }
-            return blob.generate_signed_url(
-                version="v4",
-                expiration=timedelta(seconds=expires_in),
-                method="GET",
-                **kwargs,
-            )
-
-        try:
-            return await asyncio.to_thread(generate)
-        except (GoogleAPIError, GoogleAuthError, AttributeError, ValueError) as exc:
-            logger.warning("Photo URL signing failed (%s)", type(exc).__name__)
-            raise ApiError(
-                503, "PHOTO_STORAGE_UNAVAILABLE", "사진 저장소를 사용할 수 없습니다."
-            ) from exc
 
 
 class S3PhotoStorage:

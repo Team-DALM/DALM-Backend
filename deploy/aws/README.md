@@ -51,10 +51,8 @@ Engine과 Compose plugin, git, curl을 설치합니다. 재부팅 시 Docker가 
 학교 권한으로 불가능하면 조교에게 해당 범위만 요청합니다. IAM 사용자를 새로 만들거나
 액세스 키를 발급하지 않습니다.
 
-`DALM_S3_BUCKET` 설정 시 S3를 우선 사용하며 미설정이면 기존 GCS 동작을 유지합니다.
-새 환경에서 GCS는 Cloud Run 서비스 계정이 자동 상속되지 않습니다. S3 전환 전 모든
-기존 GCS 객체를 **동일한 key**로 복사하고 건수/크기 및 샘플 해시를 검증합니다.
-원본은 삭제하지 않습니다. SDK의 조건부 업로드로 같은 key 덮어쓰기를 막고 조회는
+사진 저장소는 S3를 사용합니다. `DALM_S3_BUCKET`이 없으면 사진 업로드와 조회는
+`PHOTO_STORAGE_NOT_CONFIGURED` 오류를 반환합니다. SDK의 조건부 업로드로 같은 key 덮어쓰기를 막고 조회는
 짧은 수명의 presigned GET URL만 제공합니다.
 
 ## 4. DB와 Redis 보존

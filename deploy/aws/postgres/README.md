@@ -17,7 +17,7 @@ API 배포와 독립적으로 실행하며 DB 포트를 호스트나 인터넷�
 
 ## 복사와 검증
 
-1. 원본의 직접 연결 URL을 사용합니다. Neon의 `-pooler` 연결은 사용하지 않습니다.
+1. 원본 PostgreSQL의 직접 연결 URL을 사용합니다. 연결 풀러 주소는 사용하지 않습니다.
 2. PostgreSQL 18의 `pg_dump --format=custom --no-owner --no-acl`로 전체 DB를
    mode 600 파일에 백업합니다. 비밀번호는 프로세스 인자가 아닌 환경으로 전달합니다.
 3. 앱 역할이 소유한 새 DB에 `pg_restore --no-owner --no-acl --exit-on-error`로

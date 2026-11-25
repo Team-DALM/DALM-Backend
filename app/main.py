@@ -48,7 +48,6 @@ from app.kakao import KakaoClient
 from app.models import Notification
 from app.photo_embeddings import PhotoEmbeddingData
 from app.photo_storage import (
-    GcsPhotoStorage,
     PhotoStorage,
     S3PhotoStorage,
     UnconfiguredPhotoStorage,
@@ -171,8 +170,6 @@ def create_app(
     resolved_photo_storage = photo_storage or (
         S3PhotoStorage(resolved_settings.s3_bucket, region=resolved_settings.aws_region)
         if resolved_settings.s3_bucket
-        else GcsPhotoStorage(resolved_settings.gcs_bucket)
-        if resolved_settings.gcs_bucket
         else UnconfiguredPhotoStorage()
     )
 

@@ -226,7 +226,7 @@ def verify(expected, target, label):
     return actual
 
 
-SOURCE_SETTINGS = "import json,os\nfrom sqlalchemy.engine import make_url\nu=make_url(os.getenv('DALM_BACKUP_DATABASE_URL') or os.environ['DALM_DATABASE_URL'])\nh=u.host.replace('-pooler.','.') if u.host.endswith('neon.tech') else u.host\nprint(json.dumps(dict(PGHOST=h,PGPORT=str(u.port or 5432),PGUSER=u.username,PGPASSWORD=u.password or '',PGDATABASE=u.database,PGSSLMODE=u.query.get('sslmode',u.query.get('ssl','require')))))"
+SOURCE_SETTINGS = "import json,os\nfrom sqlalchemy.engine import make_url\nu=make_url(os.getenv('DALM_BACKUP_DATABASE_URL') or os.environ['DALM_DATABASE_URL'])\nprint(json.dumps(dict(PGHOST=u.host,PGPORT=str(u.port or 5432),PGUSER=u.username,PGPASSWORD=u.password or '',PGDATABASE=u.database,PGSSLMODE=u.query.get('sslmode',u.query.get('ssl','require')))))"
 
 WRITE_CHECK = "async def main():\n c=await asyncpg.connect(host=os.environ['PGHOST'],port=int(os.environ['PGPORT']),user=os.environ['PGUSER'],password=os.environ['PGPASSWORD'],database=os.environ['PGDATABASE'],ssl=False)\n t=c.transaction(); await t.start()\n await c.execute('CREATE TABLE public.__dalm_migration_write_check(id integer)')\n await c.execute('INSERT INTO public.__dalm_migration_write_check VALUES (1)')\n await t.rollback()\n assert not await c.fetchval(\"SELECT to_regclass('public.__dalm_migration_write_check')\")\n assert not await c.fetchval('SELECT rolsuper FROM pg_roles WHERE rolname=current_user')\n await c.close()\n print('App-role write and rollback: PASS')\nasyncio.run(main())"
 
